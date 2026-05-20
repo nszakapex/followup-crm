@@ -1,65 +1,148 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Zap, MessageSquare, Star, ArrowRight, CheckCircle } from "lucide-react";
 
-export default function Home() {
+const features = [
+  {
+    icon: Zap,
+    title: "Automatic Follow-Ups",
+    description:
+      "New leads get an instant reply. If they don't respond, follow-ups go out at 24 hours and 3 days — automatically.",
+  },
+  {
+    icon: MessageSquare,
+    title: "Simple Lead Tracking",
+    description:
+      "See every lead, what happened, and what to do next. No complicated dashboards or confusing pipelines.",
+  },
+  {
+    icon: Star,
+    title: "Google Review Requests",
+    description:
+      "When a job is done, send customers a simple request to leave an honest Google review. One tap.",
+  },
+];
+
+const benefits = [
+  "Capture leads from your website or forms",
+  "Follow up automatically by SMS or email",
+  "See who needs attention with AI summaries",
+  "Request Google reviews from real customers",
+  "Works standalone or alongside your existing CRM",
+  "Set up in under 5 minutes",
+];
+
+export default function LandingPage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="border-b border-border/50">
+        <div className="mx-auto max-w-5xl flex items-center justify-between px-6 py-4">
+          <Link href="/" className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+              <Zap className="h-4 w-4 text-primary-foreground" />
+            </div>
+            <span className="text-lg font-semibold tracking-tight">FollowUp</span>
+          </Link>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" render={<Link href="/login" />}>
+              Sign in
+            </Button>
+            <Button render={<Link href="/signup" />}>
+              Get started
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Hero */}
+      <section className="mx-auto max-w-5xl px-6 py-20 text-center">
+        <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl max-w-3xl mx-auto leading-tight">
+          Capture leads, follow up automatically, and earn more Google reviews
+        </h1>
+        <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+          A simple CRM with the follow-up already built in. No complicated software
+          to learn. Just leads, follow-ups, and reviews — handled for you.
+        </p>
+        <div className="mt-8 flex items-center justify-center gap-4">
+          <Button size="lg" render={<Link href="/signup" />}>
+            Start free trial
+            <ArrowRight className="h-4 w-4 ml-2" />
+          </Button>
+          <Button size="lg" variant="outline" render={<Link href="/login" />}>
+            Sign in
+          </Button>
+        </div>
+        <p className="mt-4 text-sm text-muted-foreground">
+          No credit card required. Set up in under 5 minutes.
+        </p>
+      </section>
+
+      {/* Features */}
+      <section className="mx-auto max-w-5xl px-6 py-16">
+        <div className="grid gap-8 sm:grid-cols-3">
+          {features.map((feature) => (
+            <div key={feature.title} className="text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-muted mb-4">
+                <feature.icon className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <h3 className="font-semibold">{feature.title}</h3>
+              <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+                {feature.description}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Benefits */}
+      <section className="mx-auto max-w-5xl px-6 py-16">
+        <div className="rounded-2xl bg-muted/50 p-8 sm:p-12">
+          <h2 className="text-2xl font-semibold text-center mb-8">
+            Everything a local business needs
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 max-w-2xl mx-auto">
+            {benefits.map((benefit) => (
+              <div key={benefit} className="flex items-center gap-3">
+                <CheckCircle className="h-4 w-4 text-primary shrink-0" />
+                <span className="text-sm">{benefit}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="mx-auto max-w-5xl px-6 py-16 text-center">
+        <h2 className="text-2xl font-semibold">
+          Stop losing leads to slow follow-ups
+        </h2>
+        <p className="mt-3 text-muted-foreground max-w-lg mx-auto">
+          Most leads go cold within an hour. FollowUp makes sure every lead gets a
+          response — instantly — so you can focus on doing great work.
+        </p>
+        <Button size="lg" className="mt-6" render={<Link href="/signup" />}>
+          Get started free
+          <ArrowRight className="h-4 w-4 ml-2" />
+        </Button>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-border/50 mt-8">
+        <div className="mx-auto max-w-5xl px-6 py-8 flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            FollowUp CRM
           </p>
+          <div className="flex gap-4 text-sm text-muted-foreground">
+            <Link href="/login" className="hover:text-foreground transition-colors">
+              Sign in
+            </Link>
+            <Link href="/signup" className="hover:text-foreground transition-colors">
+              Sign up
+            </Link>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </footer>
     </div>
   );
 }
