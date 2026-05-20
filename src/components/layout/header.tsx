@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { signOut } from "@/app/actions/auth";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,20 +15,30 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { LogOut, Settings, User } from "lucide-react";
 import { MobileNav } from "./mobile-nav";
 
+function getInitials(name: string | null | undefined): string {
+  if (!name) return "U";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return parts[0][0]?.toUpperCase() ?? "U";
+}
+
 export function Header() {
   const router = useRouter();
-
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
-  }
+  const { user, business } = useAuth();
 
   return (
     <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-border bg-card/80 backdrop-blur-sm px-4 sm:gap-x-6 sm:px-6 lg:px-8">
       {/* Mobile nav trigger */}
       <MobileNav />
+
+      {/* Business name */}
+      {business && (
+        <span className="hidden sm:block text-sm font-medium text-muted-foreground truncate">
+          {business.name}
+        </span>
+      )}
 
       {/* Spacer */}
       <div className="flex flex-1 items-center justify-end gap-x-4">
@@ -38,11 +49,18 @@ export function Header() {
           >
             <Avatar className="h-9 w-9">
               <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
-                U
+                {getInitials(user?.name)}
               </AvatarFallback>
             </Avatar>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
+            {user && (
+              <div className="px-1.5 py-1.5 text-sm">
+                <p className="font-medium">{user.name}</p>
+                <p className="text-xs text-muted-foreground">{user.email}</p>
+              </div>
+            )}
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => router.push("/settings")}>
               <User className="mr-2 h-4 w-4" />
               Profile
@@ -52,7 +70,7 @@ export function Header() {
               Settings
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleSignOut}>
+            <DropdownMenuItem onClick={() => signOut()}>
               <LogOut className="mr-2 h-4 w-4" />
               Sign out
             </DropdownMenuItem>

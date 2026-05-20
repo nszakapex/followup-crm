@@ -1,10 +1,39 @@
+import { createClient } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { BusinessSettingsForm } from "@/components/settings/business-settings-form";
+import { ReviewLinkForm } from "@/components/settings/review-link-form";
+import { BrandVoiceSelector } from "@/components/settings/brand-voice-selector";
+import type { Business, BrandVoice } from "@/types/database";
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: profile } = await supabase
+    .from("users")
+    .select("business_id")
+    .eq("id", user.id)
+    .single();
+  if (!profile) redirect("/login");
+
+  const { data: business } = await supabase
+    .from("businesses")
+    .select("*")
+    .eq("id", profile.business_id)
+    .single();
+
+  if (!business) redirect("/onboarding");
+
+  const biz = business as Business;
+
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
@@ -18,34 +47,10 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Business Information</CardTitle>
-          <CardDescription>
-            Basic details about your business.
-          </CardDescription>
+          <CardDescription>Basic details about your business.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="business-name">Business name</Label>
-            <Input id="business-name" placeholder="Your Business Name" disabled />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="industry">Industry</Label>
-            <Input id="industry" placeholder="e.g. Restaurant, Contractor, Salon" disabled />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="owner-name">Owner name</Label>
-              <Input id="owner-name" placeholder="Jane Smith" disabled />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="owner-email">Owner email</Label>
-              <Input id="owner-email" type="email" placeholder="jane@example.com" disabled />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="website">Website</Label>
-            <Input id="website" placeholder="https://yourbusiness.com" disabled />
-          </div>
-          <Button disabled>Save changes</Button>
+        <CardContent>
+          <BusinessSettingsForm business={biz} />
         </CardContent>
       </Card>
 
@@ -59,12 +64,8 @@ export default function SettingsPage() {
             This link is included in review request messages sent to your customers.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="review-link">Review link URL</Label>
-            <Input id="review-link" placeholder="https://g.page/r/..." disabled />
-          </div>
-          <Button disabled>Save link</Button>
+        <CardContent>
+          <ReviewLinkForm currentLink={biz.google_review_link} />
         </CardContent>
       </Card>
 
@@ -79,18 +80,28 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {["Friendly", "Professional", "Premium", "Casual", "Direct", "Warm"].map((voice) => (
-              <Button
-                key={voice}
-                variant={voice === "Friendly" ? "default" : "outline"}
-                size="sm"
-                disabled
-              >
-                {voice}
-              </Button>
-            ))}
+          <BrandVoiceSelector currentVoice={biz.brand_voice as BrandVoice} />
+        </CardContent>
+      </Card>
+
+      <Separator />
+
+      {/* Webhook Info */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Webhook Endpoint</CardTitle>
+          <CardDescription>
+            Use this URL to send leads from external forms, Zapier, Make, or other tools.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-md bg-muted p-3 font-mono text-xs break-all">
+            POST /api/webhooks/leads/{biz.id}/{"{secret}"}
           </div>
+          <p className="text-xs text-muted-foreground">
+            Your webhook secret is configured in your database. Send a JSON body with: first_name,
+            last_name, phone, email, source, message, notes, external_crm_id, external_crm_name.
+          </p>
         </CardContent>
       </Card>
 
@@ -110,9 +121,9 @@ export default function SettingsPage() {
             receive leads, send follow-ups, request reviews, and keep the external CRM reference
             attached to each lead.
           </p>
-          <Button variant="outline" className="mt-4" disabled>
-            Configure integration
-          </Button>
+          <Badge variant="secondary" className="mt-3">
+            Zapier &amp; Make compatible via webhooks
+          </Badge>
         </CardContent>
       </Card>
     </div>
