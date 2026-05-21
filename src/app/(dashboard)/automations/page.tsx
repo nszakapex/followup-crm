@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { ensureDefaultAutomations } from "@/lib/automations/ensure-defaults";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Zap,
@@ -68,6 +69,9 @@ export default async function AutomationsPage() {
     .eq("id", user.id)
     .single();
   if (!profile) redirect("/login");
+
+  // Ensure all 6 default automation types exist (creates only missing ones)
+  await ensureDefaultAutomations(supabase, profile.business_id);
 
   const { data: automations } = await supabase
     .from("automations")
