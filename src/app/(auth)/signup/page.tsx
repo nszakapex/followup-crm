@@ -17,14 +17,19 @@ import {
 
 export default function SignupPage() {
   const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   function handleSubmit(formData: FormData) {
     setError(null);
+    setMessage(null);
     startTransition(async () => {
       const result = await signUp(formData);
       if (result?.error) {
         setError(result.error);
+      }
+      if (result?.message) {
+        setMessage(result.message);
       }
     });
   }
@@ -42,6 +47,11 @@ export default function SignupPage() {
           {error && (
             <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {error}
+            </div>
+          )}
+          {message && (
+            <div className="rounded-md bg-primary/10 px-4 py-3 text-sm text-primary">
+              {message}
             </div>
           )}
           <div className="space-y-2">

@@ -1,13 +1,74 @@
 "use server";
 
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+
+type SafeError = {
+  message: string;
+  code?: string;
+  status?: number;
+  name?: string;
+  details?: string | null;
+  hint?: string | null;
+};
+
+function toSafeError(error: unknown): SafeError {
+  if (error && typeof error === "object") {
+    const record = error as Record<string, unknown>;
+    return {
+      message: typeof record.message === "string" ? record.message : "Unknown error",
+      code: typeof record.code === "string" ? record.code : undefined,
+      status: typeof record.status === "number" ? record.status : undefined,
+      name: typeof record.name === "string" ? record.name : undefined,
+      details: typeof record.details === "string" ? record.details : null,
+      hint: typeof record.hint === "string" ? record.hint : null,
+    };
+  }
+
+  return { message: "Unknown error" };
+}
+
+function getSignupAuthMessage(error: SafeError) {
+  if (error.code === "over_email_send_rate_limit") {
+    return "Supabase is rate limiting signup emails. For local smoke testing, disable email confirmation in Supabase Auth settings, then try again.";
+  }
+
+  if (error.code === "email_address_invalid") {
+    return "Supabase rejected that email address. Use a real test email address instead of an example.com placeholder.";
+  }
+
+  if (error.code === "user_already_exists" || /already registered/i.test(error.message)) {
+    return "That email is already registered. Try signing in or use a different test email.";
+  }
+
+  return `Signup failed: ${error.message}`;
+}
+
+async function deleteAuthUser(userId: string) {
+  try {
+    const admin = createAdminClient();
+    const { error } = await admin.auth.admin.deleteUser(userId);
+
+    if (error) {
+      console.error("[auth.signUp] Failed to clean up auth user after setup error", {
+        userId,
+        error: toSafeError(error),
+      });
+    }
+  } catch (error) {
+    console.error("[auth.signUp] Failed to create admin client for auth cleanup", {
+      userId,
+      error: toSafeError(error),
+    });
+  }
+}
 
 export async function signUp(formData: FormData) {
   const supabase = await createClient();
 
-  const name = formData.get("name") as string;
-  const email = formData.get("email") as string;
+  const name = (formData.get("name") as string)?.trim();
+  const email = (formData.get("email") as string)?.trim().toLowerCase();
   const password = formData.get("password") as string;
 
   if (!name || !email || !password) {
@@ -27,15 +88,45 @@ export async function signUp(formData: FormData) {
   });
 
   if (authError) {
-    return { error: authError.message };
+    const safeError = toSafeError(authError);
+    console.error("[auth.signUp] Supabase auth signup failed", {
+      email,
+      error: safeError,
+    });
+
+    return { error: getSignupAuthMessage(safeError) };
   }
 
   if (!authData.user) {
-    return { error: "Signup failed. Please try again." };
+    console.error("[auth.signUp] Supabase signup returned no user", {
+      email,
+      hasSession: Boolean(authData.session),
+    });
+
+    return {
+      error: "Supabase did not return a user for this signup. Check Auth settings and try again.",
+    };
   }
 
-  // Create a placeholder business for the user
-  const { data: business, error: bizError } = await supabase
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch (error) {
+    console.error("[auth.signUp] Missing Supabase admin configuration", {
+      email,
+      userId: authData.user.id,
+      error: toSafeError(error),
+    });
+
+    await deleteAuthUser(authData.user.id);
+
+    return {
+      error:
+        "Account authentication succeeded, but server-side Supabase setup is missing. Check SUPABASE_SERVICE_ROLE_KEY in .env.local.",
+    };
+  }
+
+  const { data: business, error: bizError } = await admin
     .from("businesses")
     .insert({
       name: `${name}'s Business`,
@@ -45,12 +136,22 @@ export async function signUp(formData: FormData) {
     .select("id")
     .single();
 
-  if (bizError) {
-    return { error: "Account created but business setup failed: " + bizError.message };
+  if (bizError || !business) {
+    console.error("[auth.signUp] Business setup failed", {
+      email,
+      userId: authData.user.id,
+      error: toSafeError(bizError),
+    });
+
+    await deleteAuthUser(authData.user.id);
+
+    return {
+      error:
+        "Account authentication succeeded, but business setup failed. Check the server console for the Supabase database error.",
+    };
   }
 
-  // Create the user row linked to the business
-  const { error: userError } = await supabase.from("users").insert({
+  const { error: userError } = await admin.from("users").insert({
     id: authData.user.id,
     business_id: business.id,
     name,
@@ -59,7 +160,32 @@ export async function signUp(formData: FormData) {
   });
 
   if (userError) {
-    return { error: "Account created but user profile setup failed: " + userError.message };
+    console.error("[auth.signUp] User profile setup failed", {
+      email,
+      userId: authData.user.id,
+      businessId: business.id,
+      error: toSafeError(userError),
+    });
+
+    await admin.from("businesses").delete().eq("id", business.id);
+    await deleteAuthUser(authData.user.id);
+
+    return {
+      error:
+        "Account authentication succeeded, but user profile setup failed. Check the server console for the Supabase database error.",
+    };
+  }
+
+  if (!authData.session) {
+    console.info("[auth.signUp] Signup created profile but returned no session", {
+      email,
+      userId: authData.user.id,
+    });
+
+    return {
+      message:
+        "Account created. Confirm your email, then sign in to continue onboarding.",
+    };
   }
 
   redirect("/onboarding");
