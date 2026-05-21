@@ -7,6 +7,8 @@ import { sendEmail } from "@/lib/messaging/send-email";
 
 interface SendReviewRequestParams {
   businessId: string;
+  authenticatedUserId?: string | null;
+  resolvedUsersBusinessId?: string | null;
   leadId: string;
   customerName: string;
   phone: string | null;
@@ -21,15 +23,52 @@ interface SendReviewRequestResult {
   error?: string;
 }
 
-function createServiceClient() {
+function createServiceClient(url: string, serviceRoleKey: string) {
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    url,
+    serviceRoleKey,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
   );
 }
 
 const DEFAULT_REVIEW_TEMPLATE =
-  "Hi {{first_name}}, thank you for choosing {{business_name}}. If you had a good experience, would you mind leaving us an honest Google review? Here's the link: {{google_review_link}}";
+  "Hi {{first_name}}, thank you for choosing {{business_name}}. Would you mind leaving us an honest Google review? Here's the link: {{google_review_link}}";
+
+function isDevelopment() {
+  return process.env.NODE_ENV !== "production";
+}
+
+function logReviewRequestDebug(
+  message: string,
+  payload: Record<string, unknown>
+) {
+  if (!isDevelopment()) return;
+
+  console.info(`[reviews:send] ${message}`, payload);
+}
+
+function getBusinessLookupError(businessId: string, message: string) {
+  return isDevelopment()
+    ? `Business not found for businessId: ${businessId || "[missing]"}. Supabase error: ${message}`
+    : "Business not found.";
+}
+
+function getTrackedReviewLink(clickToken: string | null, googleReviewLink: string) {
+  if (!clickToken) return googleReviewLink;
+
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    (process.env.NODE_ENV !== "production" ? "http://localhost:3001" : null);
+
+  if (!appUrl) return googleReviewLink;
+
+  return `${appUrl.replace(/\/$/, "")}/r/${clickToken}`;
+}
 
 /**
  * Send a review request to a customer via SMS or email.
@@ -42,18 +81,74 @@ const DEFAULT_REVIEW_TEMPLATE =
 export async function sendReviewRequest(
   params: SendReviewRequestParams
 ): Promise<SendReviewRequestResult> {
-  const { businessId, leadId, customerName, phone, email, channel, optedOut } = params;
-  const supabase = createServiceClient();
+  const {
+    businessId,
+    authenticatedUserId,
+    resolvedUsersBusinessId,
+    leadId,
+    customerName,
+    phone,
+    email,
+    channel,
+    optedOut,
+  } = params;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? null;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? null;
+
+  logReviewRequestDebug("service client config", {
+    supabaseUrl,
+    hasServiceRoleKey: Boolean(serviceRoleKey),
+    serviceRoleKeyMatchesAnonKey:
+      Boolean(serviceRoleKey) &&
+      serviceRoleKey === process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    incomingBusinessId: businessId,
+    authenticatedUserId: authenticatedUserId ?? null,
+    resolvedUsersBusinessId: resolvedUsersBusinessId ?? null,
+  });
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    return {
+      success: false,
+      reviewRequestId: null,
+      error: getBusinessLookupError(
+        businessId,
+        "Missing Supabase URL or service role key."
+      ),
+    };
+  }
+
+  const supabase = createServiceClient(supabaseUrl, serviceRoleKey);
 
   // Load business
-  const { data: business } = await supabase
+  const { data: business, error: businessError } = await supabase
     .from("businesses")
-    .select("name, google_review_link, twilio_from_number, resend_from_email")
+    .select("name, google_review_link")
     .eq("id", businessId)
-    .single();
+    .maybeSingle();
 
-  if (!business) {
-    return { success: false, reviewRequestId: null, error: "Business not found." };
+  logReviewRequestDebug("service business lookup", {
+    supabaseUrl,
+    hasServiceRoleKey: Boolean(serviceRoleKey),
+    serviceRoleKeyMatchesAnonKey:
+      Boolean(serviceRoleKey) &&
+      serviceRoleKey === process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    incomingBusinessId: businessId,
+    authenticatedUserId: authenticatedUserId ?? null,
+    resolvedUsersBusinessId: resolvedUsersBusinessId ?? null,
+    businessFound: Boolean(business),
+    businessLookupError: businessError?.message ?? null,
+    businessLookupCode: businessError?.code ?? null,
+  });
+
+  if (businessError || !business) {
+    const lookupMessage =
+      businessError?.message ?? "No matching business row returned.";
+
+    return {
+      success: false,
+      reviewRequestId: null,
+      error: getBusinessLookupError(businessId, lookupMessage),
+    };
   }
 
   if (!business.google_review_link) {
@@ -69,8 +164,8 @@ export async function sendReviewRequest(
   const firstName = nameParts[0] || "";
   const lastName = nameParts.slice(1).join(" ") || "";
 
-  // Render message
-  const messageBody = renderTemplate(DEFAULT_REVIEW_TEMPLATE, {
+  // Render an initial body with the direct Google link so the row can be created.
+  const initialMessageBody = renderTemplate(DEFAULT_REVIEW_TEMPLATE, {
     first_name: firstName,
     last_name: lastName,
     business_name: business.name,
@@ -87,10 +182,10 @@ export async function sendReviewRequest(
       phone: phone || null,
       email: email || null,
       channel,
-      message_body: messageBody,
+      message_body: initialMessageBody,
       status: "pending",
     })
-    .select("id")
+    .select("id, click_token")
     .single();
 
   if (insertError || !reviewRequest) {
@@ -101,6 +196,25 @@ export async function sendReviewRequest(
     };
   }
 
+  const reviewLink = getTrackedReviewLink(
+    reviewRequest.click_token ?? null,
+    business.google_review_link
+  );
+
+  const messageBody = renderTemplate(DEFAULT_REVIEW_TEMPLATE, {
+    first_name: firstName,
+    last_name: lastName,
+    business_name: business.name,
+    google_review_link: reviewLink,
+  });
+
+  if (messageBody !== initialMessageBody) {
+    await supabase
+      .from("review_requests")
+      .update({ message_body: messageBody })
+      .eq("id", reviewRequest.id);
+  }
+
   // Send via appropriate channel
   if (channel === "sms" && phone) {
     const smsResult = await sendSms({
@@ -109,7 +223,6 @@ export async function sendReviewRequest(
       to: phone,
       body: messageBody,
       optedOut,
-      twilioFromNumber: business.twilio_from_number,
     });
 
     const newStatus = smsResult.success ? "sent" : "failed";
@@ -133,9 +246,8 @@ export async function sendReviewRequest(
       businessId,
       leadId,
       to: email,
-      subject: `${business.name} — Would you leave us a review?`,
+      subject: `${business.name} - Would you leave us a review?`,
       body: messageBody,
-      fromEmail: business.resend_from_email,
     });
 
     const newStatus = emailResult.success ? "sent" : "failed";
