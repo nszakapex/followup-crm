@@ -1,6 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ShieldCheck, Building2, Users, Zap, AlertTriangle } from "lucide-react";
+import { Building2, Users, Zap, AlertTriangle } from "lucide-react";
 
 export default function AdminPage() {
   return (

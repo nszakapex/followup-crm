@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Phone, Mail, Globe, Calendar, ExternalLink } from "lucide-react";
+import { ArrowLeft, Phone, Mail, Globe } from "lucide-react";
 import { LeadStatusActions } from "@/components/leads/lead-status-actions";
 import { AddNoteForm } from "@/components/leads/add-note-form";
 import type { LeadStatus, Message } from "@/types/database";

@@ -68,6 +68,10 @@ export interface Business {
   lead_followup_enabled: boolean;
   privacy_policy_url: string | null;
   terms_url: string | null;
+  sms_compliance_status: string;
+  twilio_from_number: string | null;
+  resend_from_email: string | null;
+  webhook_secret: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -118,6 +122,7 @@ export interface Message {
   provider_message_id: string | null;
   sent_at: string | null;
   received_at: string | null;
+  error_message: string | null;
   created_at: string;
 }
 
@@ -131,6 +136,8 @@ export interface Automation {
   trigger_status: LeadStatus | null;
   message_template: string;
   channel: MessageChannel;
+  last_triggered_at: string | null;
+  trigger_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -145,6 +152,7 @@ export interface ReviewRequest {
   channel: MessageChannel;
   message_body: string;
   status: ReviewRequestStatus;
+  click_token: string | null;
   sent_at: string | null;
   clicked_at: string | null;
   created_at: string;
