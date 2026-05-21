@@ -4,73 +4,154 @@ import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { MessageChannel } from "@/types/database";
 
-async function getAuthContext() {
+type AuthContext =
+  | { ok: true; supabase: Awaited<ReturnType<typeof createClient>>; businessId: string }
+  | { ok: false; reason: string };
+
+type ToggleAutomationResult =
+  | { success: true; enabled: boolean }
+  | { success: false; error: string };
+
+const MANAGE_ROLES = ["owner", "manager", "admin"];
+
+async function getAuthContext(): Promise<AuthContext> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return null;
 
-  const { data: profile } = await supabase
+  if (!user) {
+    return { ok: false, reason: "Not signed in" };
+  }
+
+  const { data: profile, error: profileError } = await supabase
     .from("users")
     .select("business_id, role")
     .eq("id", user.id)
     .single();
 
-  if (!profile) return null;
-  if (!["owner", "manager", "admin"].includes(profile.role)) return null;
-
-  return { supabase, businessId: profile.business_id as string };
-}
-
-export async function toggleAutomation(automationId: string, enabled: boolean) {
-  const ctx = await getAuthContext();
-  if (!ctx) return { error: "Unauthorized. Only owners and managers can change automations." };
-
-  const { supabase, businessId } = ctx;
-
-  // Verify the automation exists and belongs to this business
-  const { data: existing } = await supabase
-    .from("automations")
-    .select("id, enabled")
-    .eq("id", automationId)
-    .eq("business_id", businessId)
-    .single();
-
-  if (!existing) {
-    console.error("[automations.toggle] Automation not found", { automationId, businessId });
-    return { error: "Automation not found." };
+  if (profileError || !profile) {
+    console.error("[automations.auth] Business user row missing", {
+      userId: user.id,
+      error: profileError?.message ?? null,
+    });
+    return { ok: false, reason: "Business user row missing" };
   }
 
-  const { error, data } = await supabase
+  if (!MANAGE_ROLES.includes(profile.role)) {
+    return {
+      ok: false,
+      reason: "Only owners and managers can change automations",
+    };
+  }
+
+  return { ok: true, supabase, businessId: profile.business_id as string };
+}
+
+export async function toggleAutomation(
+  automationId: string,
+  enabled: boolean
+): Promise<ToggleAutomationResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    console.error("[automations.toggle] Not signed in", { automationId });
+    return { success: false as const, error: "Not signed in" };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("users")
+    .select("id, business_id, role")
+    .eq("id", user.id)
+    .single();
+
+  if (profileError || !profile) {
+    console.error("[automations.toggle] Business user row missing", {
+      userId: user.id,
+      profileError: profileError?.message ?? null,
+    });
+    return { success: false as const, error: "Business user row missing" };
+  }
+
+  if (!MANAGE_ROLES.includes(profile.role)) {
+    console.error("[automations.toggle] Insufficient role", {
+      userId: user.id,
+      businessId: profile.business_id,
+      role: profile.role,
+      automationId,
+    });
+    return { success: false as const, error: "Only owners and managers can change automations" };
+  }
+
+  const businessId = profile.business_id as string;
+
+  // Select-before-update: confirm the row exists and belongs to this business.
+  const {
+    data: existing,
+    error: selectError,
+    count: selectCount,
+  } = await supabase
+    .from("automations")
+    .select("id, enabled", { count: "exact" })
+    .eq("id", automationId)
+    .eq("business_id", businessId);
+
+  if (selectError) {
+    console.error("[automations.toggle] Select failed", {
+      automationId,
+      businessId,
+      error: selectError.message,
+    });
+    return { success: false as const, error: "Supabase update failed: " + selectError.message };
+  }
+
+  if (!existing || existing.length === 0) {
+    console.error("[automations.toggle] Automation row not found", {
+      automationId,
+      businessId,
+      selectCount: selectCount ?? 0,
+    });
+    return { success: false as const, error: "Automation row not found" };
+  }
+
+  // Update scoped by BOTH automation id and business_id, returning the row so
+  // we can detect a 0-row update (the signature of an RLS block).
+  const {
+    data: updated,
+    error: updateError,
+  } = await supabase
     .from("automations")
     .update({ enabled })
     .eq("id", automationId)
     .eq("business_id", businessId)
-    .select("id");
+    .select("id, enabled");
 
-  if (error) {
-    console.error("[automations.toggle] Update failed", {
+  if (updateError) {
+    console.error("[automations.toggle] Supabase update failed", {
       automationId,
       businessId,
-      enabled,
-      error: error.message,
-      code: error.code,
+      targetEnabled: enabled,
+      error: updateError.message,
+      code: (updateError as { code?: string }).code ?? null,
     });
-    return { error: "Failed to update automation: " + error.message };
+    return { success: false as const, error: "Supabase update failed: " + updateError.message };
   }
 
-  if (!data || data.length === 0) {
-    console.error("[automations.toggle] Update matched 0 rows (likely RLS)", {
+  if (!updated || updated.length === 0) {
+    // No error but no row changed → RLS with-check rejected the write silently.
+    console.error("[automations.toggle] RLS blocked update", {
       automationId,
       businessId,
-      enabled,
+      targetEnabled: enabled,
     });
-    return { error: "Update was blocked. Check your account permissions." };
+    return { success: false as const, error: "RLS blocked update" };
   }
 
   revalidatePath("/automations");
-  return { success: true };
+  return { success: true as const, enabled: updated[0].enabled as boolean };
 }
 
 export async function updateAutomationTemplate(
@@ -78,7 +159,7 @@ export async function updateAutomationTemplate(
   messageTemplate: string
 ) {
   const ctx = await getAuthContext();
-  if (!ctx) return { error: "Unauthorized." };
+  if (!ctx.ok) return { error: ctx.reason };
 
   if (!messageTemplate.trim()) {
     return { error: "Message template cannot be empty." };
@@ -109,7 +190,7 @@ export async function updateAutomationChannel(
   channel: MessageChannel
 ) {
   const ctx = await getAuthContext();
-  if (!ctx) return { error: "Unauthorized." };
+  if (!ctx.ok) return { error: ctx.reason };
 
   const { supabase, businessId } = ctx;
 
