@@ -1,37 +1,28 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Users, ArrowRight } from "lucide-react";
+import { redirect } from "next/navigation";
+import { ArrowRight, Clock, Mail, Phone, Users } from "lucide-react";
+
 import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
-import type { Lead, LeadStatus } from "@/types/database";
 import { LeadFilters } from "@/components/leads/lead-filters";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { MetricCard } from "@/components/ui/metric-card";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { createClient } from "@/lib/supabase/server";
+import type { Lead, LeadStatus } from "@/types/database";
 
-const statusColors: Record<LeadStatus, string> = {
-  new: "bg-blue-100 text-blue-800",
-  contacted: "bg-yellow-100 text-yellow-800",
-  needs_reply: "bg-orange-100 text-orange-800",
-  interested: "bg-purple-100 text-purple-800",
-  booked: "bg-green-100 text-green-800",
-  completed: "bg-emerald-100 text-emerald-800",
-  review_requested: "bg-indigo-100 text-indigo-800",
-  lost: "bg-gray-100 text-gray-600",
-};
+function isDevelopment() {
+  return process.env.NODE_ENV !== "production";
+}
 
-const statusLabels: Record<LeadStatus, string> = {
-  new: "New",
-  contacted: "Contacted",
-  needs_reply: "Needs Reply",
-  interested: "Interested",
-  booked: "Booked",
-  completed: "Completed",
-  review_requested: "Review Requested",
-  lost: "Lost",
-};
+function formatError(message: string) {
+  return isDevelopment() ? message : "Leads could not be loaded.";
+}
 
 function formatDate(dateStr: string | null) {
-  if (!dateStr) return "—";
+  if (!dateStr) return "-";
   return new Date(dateStr).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -48,15 +39,18 @@ export default async function LeadsPage(props: {
 
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
+  if (authError || !user) redirect("/login");
+
+  const { data: profile, error: profileError } = await supabase
     .from("users")
     .select("business_id")
     .eq("id", user.id)
     .single();
-  if (!profile) redirect("/login");
+
+  if (profileError || !profile) redirect("/login");
 
   let query = supabase
     .from("leads")
@@ -68,91 +62,145 @@ export default async function LeadsPage(props: {
     query = query.eq("status", searchParams.status);
   }
 
-  const { data: leads } = await query;
+  const [
+    { data: leadsData, error: leadsError },
+    { data: allLeadsData, error: allLeadsError },
+  ] = await Promise.all([
+    query,
+    supabase
+      .from("leads")
+      .select("id, status, created_at, next_followup_at")
+      .eq("business_id", profile.business_id),
+  ]);
+
+  const leads = (leadsData ?? []) as Lead[];
+  const allLeads = (allLeadsData ?? []) as Pick<
+    Lead,
+    "id" | "status" | "created_at" | "next_followup_at"
+  >[];
+  const weekStart = new Date();
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - 6);
+
+  const needsReply = allLeads.filter((lead) => lead.status === "needs_reply").length;
+  const newThisWeek = allLeads.filter(
+    (lead) => new Date(lead.created_at) >= weekStart
+  ).length;
+  const bookedOrCompleted = allLeads.filter((lead) =>
+    ["booked", "completed", "review_requested"].includes(lead.status)
+  ).length;
+  const upcomingFollowups = allLeads.filter(
+    (lead) => lead.next_followup_at && new Date(lead.next_followup_at) >= new Date()
+  ).length;
+  const pageError = leadsError?.message ?? allLeadsError?.message ?? null;
 
   return (
-    <div className="space-y-6">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
-          <p className="text-muted-foreground mt-1">
-            All your potential customers in one place.
-          </p>
-        </div>
-        <AddLeadDialog />
-      </div>
+    <div className="space-y-8">
+      <PageHeader
+        eyebrow="Pipeline"
+        title="Leads"
+        description="A clean view of every opportunity, where it stands, and what needs attention next."
+        actions={<AddLeadDialog />}
+      />
 
-      {/* Filters */}
-      <LeadFilters currentStatus={searchParams.status || "all"} />
-
-      {/* Leads list */}
-      {!leads || leads.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <Users className="h-10 w-10 text-muted-foreground/50 mb-3" />
-            <h3 className="font-medium text-muted-foreground">No leads yet</h3>
-            <p className="text-sm text-muted-foreground/70 mt-1 max-w-sm">
-              Leads will appear here as they come in from your website, forms, or webhook
-              connections. You can also add them manually.
-            </p>
+      {pageError && (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="py-4 text-sm text-destructive">
+            {formatError(pageError)}
           </CardContent>
         </Card>
-      ) : (
-        <div className="space-y-3">
-          {leads.map((lead: Lead) => (
-            <Link key={lead.id} href={`/leads/${lead.id}`}>
-              <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
-                <CardContent className="flex items-center justify-between py-4">
-                  <div className="flex items-center gap-4 min-w-0">
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <MetricCard label="Total leads" value={allLeads.length} context="All time" icon={Users} />
+        <MetricCard
+          label="New this week"
+          value={newThisWeek}
+          context="Created in the last 7 days"
+          icon={Clock}
+          tone={newThisWeek > 0 ? "good" : "neutral"}
+        />
+        <MetricCard
+          label="Needs reply"
+          value={needsReply}
+          context="Waiting for your response"
+          icon={Mail}
+          tone={needsReply > 0 ? "attention" : "neutral"}
+        />
+        <MetricCard
+          label="Progressed"
+          value={bookedOrCompleted}
+          context={`${upcomingFollowups} future follow-up${upcomingFollowups === 1 ? "" : "s"}`}
+          icon={ArrowRight}
+        />
+      </div>
+
+      <Card>
+        <CardHeader className="gap-4 sm:flex sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle>Lead pipeline</CardTitle>
+            <CardDescription>Filter by status without losing the operational context.</CardDescription>
+          </div>
+          <LeadFilters currentStatus={searchParams.status || "all"} />
+        </CardHeader>
+        <CardContent className="p-0">
+          {leads.length === 0 ? (
+            <EmptyState
+              icon={Users}
+              title="No leads in this view"
+              description="New leads will appear here as they come in from forms, webhooks, or manual entry."
+              action={<AddLeadDialog />}
+            />
+          ) : (
+            <div className="divide-y divide-border/60">
+              {leads.map((lead) => (
+                <Link
+                  key={lead.id}
+                  href={`/leads/${lead.id}`}
+                  className="group block transition-colors hover:bg-muted/30"
+                >
+                  <div className="grid gap-4 px-5 py-4 md:grid-cols-[1.1fr_0.8fr_auto] md:items-center">
                     <div className="min-w-0">
-                      <p className="font-medium truncate">
-                        {lead.first_name} {lead.last_name || ""}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-sm font-medium">
+                          {lead.first_name} {lead.last_name || ""}
+                        </p>
+                        <StatusBadge status={lead.status as LeadStatus} />
+                      </div>
+                      <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
+                        {lead.notes || lead.ai_summary || lead.source || "No notes yet"}
                       </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        {lead.source && (
-                          <span className="text-xs text-muted-foreground">
-                            via {lead.source}
-                          </span>
-                        )}
-                        {lead.phone && (
-                          <span className="text-xs text-muted-foreground">
-                            {lead.phone}
-                          </span>
-                        )}
-                        {lead.email && !lead.phone && (
-                          <span className="text-xs text-muted-foreground truncate">
-                            {lead.email}
-                          </span>
-                        )}
+                    </div>
+
+                    <div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2 md:block">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Phone className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{lead.phone || "No phone"}</span>
+                      </div>
+                      <div className="flex min-w-0 items-center gap-2 md:mt-1">
+                        <Mail className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{lead.email || "No email"}</span>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right hidden sm:block">
-                      <p className="text-xs text-muted-foreground">
-                        {formatDate(lead.created_at)}
-                      </p>
-                      {lead.next_followup_at && (
-                        <p className="text-xs text-muted-foreground">
-                          Follow-up: {formatDate(lead.next_followup_at)}
-                        </p>
-                      )}
+
+                    <div className="flex items-center justify-between gap-3 md:justify-end">
+                      <div className="text-xs text-muted-foreground md:text-right">
+                        <p>Created {formatDate(lead.created_at)}</p>
+                        {lead.next_followup_at && (
+                          <p className="mt-1">Follow-up {formatDate(lead.next_followup_at)}</p>
+                        )}
+                      </div>
+                      <Button variant="ghost" size="icon-sm" className="opacity-70 group-hover:opacity-100">
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <Badge
-                      variant="secondary"
-                      className={`text-xs ${statusColors[lead.status]}`}
-                    >
-                      {statusLabels[lead.status]}
-                    </Badge>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
                   </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
-        </div>
-      )}
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

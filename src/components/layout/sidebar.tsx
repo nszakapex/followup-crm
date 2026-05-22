@@ -33,18 +33,21 @@ export function Sidebar() {
 
   return (
     <aside className="hidden lg:fixed lg:inset-y-0 lg:flex lg:w-64 lg:flex-col">
-      <div className="flex grow flex-col gap-y-5 overflow-y-auto border-r border-border bg-card px-6 pb-4">
-        {/* Logo */}
-        <div className="flex h-16 shrink-0 items-center">
+      <div className="flex grow flex-col gap-y-6 overflow-y-auto border-r border-border/60 bg-background/80 px-5 pb-5 backdrop-blur-xl">
+        <div className="flex h-20 shrink-0 items-center">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background shadow-sm">
               <Zap className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="text-lg font-semibold tracking-tight">FollowUp</span>
+            <div>
+              <span className="block text-base font-semibold">FollowUp</span>
+              <span className="block text-[0.68rem] font-medium uppercase text-muted-foreground">
+                CRM
+              </span>
+            </div>
           </Link>
         </div>
 
-        {/* Navigation */}
         <nav className="flex flex-1 flex-col">
           <ul role="list" className="flex flex-1 flex-col gap-y-1">
             {navigation.map((item) => {
@@ -54,10 +57,10 @@ export function Sidebar() {
                   <Link
                     href={item.href}
                     className={cn(
-                      "group flex items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                      "group flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                       isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        ? "bg-foreground text-background shadow-sm"
+                        : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
                     )}
                   >
                     <item.icon className="h-4 w-4 shrink-0" />
@@ -67,9 +70,8 @@ export function Sidebar() {
               );
             })}
 
-            {/* Admin section */}
             <li className="mt-auto">
-              <div className="mb-2">
+              <div className="mb-3">
                 <Separator />
               </div>
               {adminNav.map((item) => {
@@ -79,10 +81,10 @@ export function Sidebar() {
                     key={item.name}
                     href={item.href}
                     className={cn(
-                      "group flex items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                      "group flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                       isActive
-                        ? "bg-primary/10 text-primary"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                        ? "bg-foreground text-background shadow-sm"
+                        : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
                     )}
                   >
                     <item.icon className="h-4 w-4 shrink-0" />

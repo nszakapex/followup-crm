@@ -1,24 +1,87 @@
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { redirect } from "next/navigation";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  MessageSquare,
+  MousePointerClick,
+  Star,
+  TrendingUp,
+  Users,
+  Zap,
+} from "lucide-react";
+
+import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
+import { ActivityItem } from "@/components/ui/activity-item";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Users, MessageSquare, Zap, Star, ArrowRight } from "lucide-react";
-import type { Lead, LeadStatus } from "@/types/database";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DashboardChart, type DashboardChartPoint } from "@/components/dashboard/dashboard-chart";
+import { EmptyState } from "@/components/ui/empty-state";
+import { MetricCard } from "@/components/ui/metric-card";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { createClient } from "@/lib/supabase/server";
+import type { Automation, Lead, Message, ReviewRequest } from "@/types/database";
 
-const statusLabels: Record<LeadStatus, string> = {
-  new: "New",
-  contacted: "Contacted",
-  needs_reply: "Needs Reply",
-  interested: "Interested",
-  booked: "Booked",
-  completed: "Completed",
-  review_requested: "Review Requested",
-  lost: "Lost",
+type LeadRow = Pick<
+  Lead,
+  | "id"
+  | "first_name"
+  | "last_name"
+  | "status"
+  | "source"
+  | "phone"
+  | "email"
+  | "notes"
+  | "ai_summary"
+  | "next_followup_at"
+  | "created_at"
+>;
+
+type ReviewRequestRow = Pick<
+  ReviewRequest,
+  "id" | "lead_id" | "customer_name" | "status" | "sent_at" | "clicked_at" | "created_at"
+>;
+
+type AutomationRow = Pick<
+  Automation,
+  "id" | "name" | "enabled" | "type" | "trigger_count" | "last_triggered_at"
+>;
+
+type MessageRow = Pick<Message, "id" | "lead_id" | "direction" | "status" | "created_at">;
+
+type Activity = {
+  id: string;
+  title: string;
+  description: string;
+  href: string;
+  icon: typeof Users;
+  date: string;
 };
 
-function formatRelative(dateStr: string) {
+type NextAction = {
+  title: string;
+  description: string;
+  href: string;
+};
+
+function isNextAction(action: NextAction | null): action is NextAction {
+  return action !== null;
+}
+
+function isDevelopment() {
+  return process.env.NODE_ENV !== "production";
+}
+
+function formatError(message: string) {
+  return isDevelopment() ? message : "Dashboard data could not be loaded.";
+}
+
+function formatRelative(dateStr: string | null) {
+  if (!dateStr) return "Not yet";
+
   const now = new Date();
   const date = new Date(dateStr);
   const diffMs = now.getTime() - date.getTime();
@@ -33,192 +96,439 @@ function formatRelative(dateStr: string) {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+function getDateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function buildGrowthSeries(items: { created_at: string }[]): DashboardChartPoint[] {
+  if (items.length === 0) return [];
+
+  const days = 30;
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - (days - 1));
+
+  const counts = new Map<string, number>();
+
+  for (const item of items) {
+    const date = new Date(item.created_at);
+    date.setHours(0, 0, 0, 0);
+    if (date < start) continue;
+
+    const key = getDateKey(date);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return {
+      label: date.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      value: counts.get(getDateKey(date)) ?? 0,
+    };
+  });
+}
+
+function percent(part: number, whole: number) {
+  if (whole === 0) return "0%";
+  return `${Math.round((part / whole) * 100)}%`;
+}
+
+function sortByDateDesc<T extends { date: string }>(items: T[]) {
+  return items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient();
 
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
 
-  const { data: profile } = await supabase
+  if (authError || !user) redirect("/login");
+
+  const { data: profile, error: profileError } = await supabase
     .from("users")
     .select("business_id, name")
     .eq("id", user.id)
     .single();
-  if (!profile) redirect("/login");
+
+  if (profileError || !profile) redirect("/login");
 
   const businessId = profile.business_id;
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const weekStart = new Date();
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - 6);
 
-  // Get counts in parallel
-  const [newLeadsRes, needsReplyRes, followupsSentRes, reviewRequestsRes, attentionRes] =
-    await Promise.all([
-      supabase
-        .from("leads")
-        .select("id", { count: "exact", head: true })
-        .eq("business_id", businessId)
-        .eq("status", "new"),
-      supabase
-        .from("leads")
-        .select("id", { count: "exact", head: true })
-        .eq("business_id", businessId)
-        .eq("status", "needs_reply"),
-      supabase
-        .from("messages")
-        .select("id", { count: "exact", head: true })
-        .eq("business_id", businessId)
-        .eq("direction", "outbound")
-        .gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
-      supabase
-        .from("review_requests")
-        .select("id", { count: "exact", head: true })
-        .eq("business_id", businessId)
-        .gte("created_at", new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString()),
-      supabase
-        .from("leads")
-        .select("*")
-        .eq("business_id", businessId)
-        .in("status", ["new", "needs_reply", "interested"])
-        .order("created_at", { ascending: false })
-        .limit(10),
-    ]);
+  const [
+    { data: business, error: businessError },
+    { data: leadsData, error: leadsError },
+    { data: reviewRequestsData, error: reviewRequestsError },
+    { data: automationsData, error: automationsError },
+    { data: messagesData, error: messagesError },
+  ] = await Promise.all([
+    supabase
+      .from("businesses")
+      .select("id, name, google_review_link")
+      .eq("id", businessId)
+      .single(),
+    supabase
+      .from("leads")
+      .select(
+        "id, first_name, last_name, status, source, phone, email, notes, ai_summary, next_followup_at, created_at"
+      )
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("review_requests")
+      .select("id, lead_id, customer_name, status, sent_at, clicked_at, created_at")
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("automations")
+      .select("id, name, enabled, type, trigger_count, last_triggered_at")
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("messages")
+      .select("id, lead_id, direction, status, created_at")
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: false })
+      .limit(20),
+  ]);
 
-  const stats = [
-    {
-      name: "New Leads",
-      value: newLeadsRes.count ?? 0,
-      icon: Users,
-      description: "Waiting for first contact",
-    },
-    {
-      name: "Needs Reply",
-      value: needsReplyRes.count ?? 0,
-      icon: MessageSquare,
-      description: "Leads who responded",
-    },
-    {
-      name: "Follow-Ups Sent",
-      value: followupsSentRes.count ?? 0,
-      icon: Zap,
-      description: "This month",
-    },
-    {
-      name: "Review Requests",
-      value: reviewRequestsRes.count ?? 0,
-      icon: Star,
-      description: "Sent this month",
-    },
-  ];
+  const queryErrors = [
+    businessError,
+    leadsError,
+    reviewRequestsError,
+    automationsError,
+    messagesError,
+  ].filter(Boolean);
+  const pageError = queryErrors[0]?.message;
 
-  const attentionLeads = (attentionRes.data ?? []) as Lead[];
+  const leads = (leadsData ?? []) as LeadRow[];
+  const reviewRequests = (reviewRequestsData ?? []) as ReviewRequestRow[];
+  const automations = (automationsData ?? []) as AutomationRow[];
+  const messages = (messagesData ?? []) as MessageRow[];
 
-  function getSuggestedAction(lead: Lead): string {
-    if (lead.status === "new") {
-      return "Send an initial reply to introduce yourself and ask how you can help.";
-    }
-    if (lead.status === "needs_reply") {
-      return "This lead responded — read their message and reply.";
-    }
-    if (lead.status === "interested") {
-      return "They're interested — follow up to confirm details or book.";
-    }
-    return "Review and take action.";
-  }
+  const totalLeads = leads.length;
+  const newLeadsThisWeek = leads.filter(
+    (lead) => new Date(lead.created_at) >= weekStart
+  ).length;
+  const openOpportunities = leads.filter((lead) =>
+    ["new", "needs_reply", "interested", "booked"].includes(lead.status)
+  ).length;
+  const needsReply = leads.filter((lead) => lead.status === "needs_reply").length;
+  const reviewRequestsSent = reviewRequests.filter(
+    (request) => request.sent_at || ["sent", "clicked", "completed"].includes(request.status)
+  ).length;
+  const reviewRequestsThisMonth = reviewRequests.filter(
+    (request) => new Date(request.created_at) >= monthStart
+  ).length;
+  const reviewClicks = reviewRequests.filter(
+    (request) => request.clicked_at || request.status === "clicked"
+  ).length;
+  const activeAutomations = automations.filter((automation) => automation.enabled).length;
+  const outboundMessagesThisMonth = messages.filter(
+    (message) =>
+      message.direction === "outbound" &&
+      new Date(message.created_at) >= monthStart
+  ).length;
+  const engagementRate = percent(reviewClicks, reviewRequestsSent);
+  const conversionCount = leads.filter((lead) =>
+    ["booked", "completed", "review_requested"].includes(lead.status)
+  ).length;
+  const conversionRate = percent(conversionCount, totalLeads);
+
+  const chartSource =
+    leads.length > 0
+      ? { label: "Lead growth", items: leads }
+      : { label: "Review request growth", items: reviewRequests };
+  const chartPoints = buildGrowthSeries(chartSource.items);
+
+  const recentLeadActivities: Activity[] = leads.slice(0, 5).map((lead) => ({
+    id: `lead-${lead.id}`,
+    title: `${lead.first_name} ${lead.last_name ?? ""}`.trim(),
+    description: lead.source
+      ? `New lead from ${lead.source}`
+      : lead.phone || lead.email || "New lead added",
+    href: `/leads/${lead.id}`,
+    icon: Users,
+    date: lead.created_at,
+  }));
+
+  const reviewActivities: Activity[] = reviewRequests.slice(0, 5).map((request) => ({
+    id: `review-${request.id}`,
+    title: request.customer_name,
+    description:
+      request.status === "clicked"
+        ? "Clicked the review request link"
+        : "Review request sent",
+    href: `/leads/${request.lead_id}`,
+    icon: Star,
+    date: request.clicked_at ?? request.sent_at ?? request.created_at,
+  }));
+
+  const messageActivities: Activity[] = messages.slice(0, 5).map((message) => ({
+    id: `message-${message.id}`,
+    title: message.direction === "outbound" ? "Outbound message" : "New message",
+    description: `${message.status} ${message.direction} message`,
+    href: `/leads/${message.lead_id}`,
+    icon: MessageSquare,
+    date: message.created_at,
+  }));
+
+  const recentActivity = sortByDateDesc([
+    ...recentLeadActivities,
+    ...reviewActivities,
+    ...messageActivities,
+  ]).slice(0, 6);
+
+  const nextActions = [
+    !business?.google_review_link
+      ? {
+          title: "Add your Google review link",
+          description: "Review requests need a destination before customers can click through.",
+          href: "/settings",
+        }
+      : null,
+    needsReply > 0
+      ? {
+          title: `Reply to ${needsReply} lead${needsReply === 1 ? "" : "s"}`,
+          description: "These leads are waiting for a response.",
+          href: "/leads?status=needs_reply",
+        }
+      : null,
+    activeAutomations === 0 && automations.length > 0
+      ? {
+          title: "Turn on your first automation",
+          description: "Start with instant replies so new leads are acknowledged right away.",
+          href: "/automations",
+        }
+      : null,
+    totalLeads === 0
+      ? {
+          title: "Add your first lead",
+          description: "Create one customer record to unlock follow-up and review tracking.",
+          href: "/leads",
+        }
+      : null,
+    totalLeads > 0 && reviewRequestsSent === 0
+      ? {
+          title: "Send a review request",
+          description: "Ask a real customer for an honest Google review.",
+          href: "/reviews",
+        }
+      : null,
+  ].filter(isNextAction);
 
   return (
     <div className="space-y-8">
-      {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">
-          Here&apos;s what&apos;s happening with your leads today.
-        </p>
-      </div>
+      <PageHeader
+        eyebrow="Command center"
+        title={`Good ${new Date().getHours() < 12 ? "morning" : "afternoon"}, ${
+          profile.name?.split(" ")[0] ?? "there"
+        }`}
+        description={`A calm read on ${business?.name ?? "your business"}: leads, follow-up, reviews, and automation health in one place.`}
+        actions={<AddLeadDialog />}
+      />
 
-      {/* Stats cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => (
-          <Card key={stat.name}>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {stat.name}
-              </CardTitle>
-              <stat.icon className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-semibold">{stat.value}</div>
-              <p className="text-xs text-muted-foreground mt-1">{stat.description}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {pageError && (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="py-4 text-sm text-destructive">
+            {formatError(pageError)}
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Needs Attention */}
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Needs Attention</h2>
-        {attentionLeads.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-              <Users className="h-10 w-10 text-muted-foreground/50 mb-3" />
-              <h3 className="font-medium text-muted-foreground">All caught up</h3>
-              <p className="text-sm text-muted-foreground/70 mt-1 max-w-sm">
-                No leads need attention right now. When new leads come in or someone
-                responds, they&apos;ll appear here.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {attentionLeads.map((lead) => (
-              <Card key={lead.id}>
-                <CardContent className="py-4">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="font-medium">
-                          {lead.first_name} {lead.last_name || ""}
-                        </p>
-                        <Badge variant="secondary" className="text-xs">
-                          {statusLabels[lead.status]}
-                        </Badge>
-                        {lead.source && (
-                          <span className="text-xs text-muted-foreground">
-                            via {lead.source}
-                          </span>
-                        )}
-                        <span className="text-xs text-muted-foreground">
-                          {formatRelative(lead.created_at)}
-                        </span>
-                      </div>
-                      {lead.ai_summary ? (
-                        <p className="text-sm text-muted-foreground leading-relaxed">
-                          {lead.ai_summary}
-                        </p>
-                      ) : lead.notes ? (
-                        <p className="text-sm text-muted-foreground leading-relaxed line-clamp-2">
-                          {lead.notes}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          {lead.phone || lead.email || "No contact info yet"}
-                        </p>
-                      )}
-                      <p className="text-xs text-primary mt-2">
-                        {getSuggestedAction(lead)}
-                      </p>
-                    </div>
-                    <Link href={`/leads/${lead.id}`}>
-                      <Button variant="outline" size="sm">
-                        View
-                        <ArrowRight className="h-3 w-3 ml-1" />
-                      </Button>
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+      <Card className="bg-foreground text-background">
+        <CardContent className="grid gap-6 p-6 md:grid-cols-[1.3fr_0.7fr] md:items-end">
+          <div>
+            <Badge className="bg-background/10 text-background hover:bg-background/10">
+              {business?.google_review_link ? "Review link ready" : "Review link missing"}
+            </Badge>
+            <h2 className="mt-5 max-w-2xl text-3xl font-semibold sm:text-4xl">
+              {openOpportunities} open conversation{openOpportunities === 1 ? "" : "s"} need
+              a clear next step.
+            </h2>
+            <p className="mt-4 max-w-xl text-sm leading-6 text-background/70">
+              {outboundMessagesThisMonth} outbound follow-up
+              {outboundMessagesThisMonth === 1 ? "" : "s"} this month,{" "}
+              {reviewRequestsThisMonth} review request
+              {reviewRequestsThisMonth === 1 ? "" : "s"}, and {activeAutomations} active
+              automation{activeAutomations === 1 ? "" : "s"} keeping the pipeline steady.
+            </p>
           </div>
-        )}
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-lg border border-background/10 bg-background/5 p-4">
+              <p className="text-background/60">Review engagement</p>
+              <p className="mt-2 text-3xl font-semibold">{engagementRate}</p>
+            </div>
+            <div className="rounded-lg border border-background/10 bg-background/5 p-4">
+              <p className="text-background/60">Lead progression</p>
+              <p className="mt-2 text-3xl font-semibold">{conversionRate}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <MetricCard
+          label="Total leads"
+          value={totalLeads}
+          context={`${openOpportunities} open opportunities`}
+          icon={Users}
+        />
+        <MetricCard
+          label="New this week"
+          value={newLeadsThisWeek}
+          context="Created in the last 7 days"
+          icon={TrendingUp}
+          tone={newLeadsThisWeek > 0 ? "good" : "neutral"}
+        />
+        <MetricCard
+          label="Review requests"
+          value={reviewRequestsSent}
+          context={`${reviewClicks} link click${reviewClicks === 1 ? "" : "s"}`}
+          icon={Star}
+        />
+        <MetricCard
+          label="Engagement"
+          value={engagementRate}
+          context="Clicked review links"
+          icon={MousePointerClick}
+          tone={reviewClicks > 0 ? "good" : "neutral"}
+        />
+        <MetricCard
+          label="Automations"
+          value={`${activeAutomations}/${automations.length}`}
+          context="Currently enabled"
+          icon={Zap}
+          tone={activeAutomations > 0 ? "good" : "attention"}
+        />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>{chartSource.label}</CardTitle>
+            <CardDescription>
+              Real activity from the last 30 days. No sample data is shown.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <DashboardChart points={chartPoints} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Priority next actions</CardTitle>
+            <CardDescription>The shortest path to more follow-up clarity.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {nextActions.length === 0 ? (
+              <EmptyState
+                icon={CheckCircle2}
+                title="Nothing urgent"
+                description="Your setup has the essentials in place. Keep an eye on new replies and review clicks."
+                className="py-10"
+              />
+            ) : (
+              <div className="space-y-2">
+                {nextActions.map((action) => (
+                  <Link key={action.title} href={action.href}>
+                    <div className="rounded-lg border border-border/70 p-4 transition-colors hover:bg-muted/40">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">{action.title}</p>
+                          <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                            {action.description}
+                          </p>
+                        </div>
+                        <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Automation health</CardTitle>
+            <CardDescription>Quiet systems that keep the business responsive.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {automations.length === 0 ? (
+              <EmptyState
+                icon={Zap}
+                title="No automations configured"
+                description="Default automations will appear here once setup is complete."
+                className="py-10"
+              />
+            ) : (
+              automations.slice(0, 6).map((automation) => (
+                <div
+                  key={automation.id}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-border/60 p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{automation.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {automation.trigger_count > 0
+                        ? `${automation.trigger_count} trigger${automation.trigger_count === 1 ? "" : "s"}`
+                        : "No triggers yet"}
+                      {" · "}
+                      Last {formatRelative(automation.last_triggered_at)}
+                    </p>
+                  </div>
+                  <StatusBadge status={automation.enabled ? "enabled" : "paused"} />
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent activity</CardTitle>
+            <CardDescription>New leads, messages, and review movement.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {recentActivity.length === 0 ? (
+              <EmptyState
+                icon={Clock}
+                title="No activity yet"
+                description="Recent leads, follow-ups, and review requests will appear here."
+                className="py-10"
+              />
+            ) : (
+              <div className="space-y-1">
+                {recentActivity.map((activity) => (
+                  <ActivityItem
+                    key={activity.id}
+                    icon={activity.icon}
+                    title={activity.title}
+                    description={activity.description}
+                    meta={formatRelative(activity.date)}
+                    action={
+                      <Button variant="ghost" size="icon-sm" render={<Link href={activity.href} />}>
+                        <ArrowRight className="h-4 w-4" />
+                      </Button>
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

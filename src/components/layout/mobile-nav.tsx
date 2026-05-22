@@ -41,16 +41,21 @@ export function MobileNav() {
       </SheetTrigger>
       <SheetContent side="left" className="w-64 p-0">
         <SheetTitle className="sr-only">Navigation</SheetTitle>
-        <div className="flex h-16 items-center px-6 border-b border-border">
+        <div className="flex h-20 items-center border-b border-border/60 px-6">
           <Link
             href="/dashboard"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background">
               <Zap className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="text-lg font-semibold tracking-tight">FollowUp</span>
+            <div>
+              <span className="block text-base font-semibold">FollowUp</span>
+              <span className="block text-[0.68rem] font-medium uppercase text-muted-foreground">
+                CRM
+              </span>
+            </div>
           </Link>
         </div>
         <nav className="flex flex-col gap-y-1 p-4">
@@ -62,10 +67,10 @@ export function MobileNav() {
                 href={item.href}
                 onClick={() => setOpen(false)}
                 className={cn(
-                  "flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  "flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                   isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    ? "bg-foreground text-background shadow-sm"
+                    : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
                 )}
               >
                 <item.icon className="h-4 w-4 shrink-0" />

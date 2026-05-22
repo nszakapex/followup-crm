@@ -29,20 +29,17 @@ export function Header() {
   const { user, business } = useAuth();
 
   return (
-    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-border bg-card/80 backdrop-blur-sm px-4 sm:gap-x-6 sm:px-6 lg:px-8">
-      {/* Mobile nav trigger */}
+    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-border/60 bg-background/75 px-4 backdrop-blur-xl sm:gap-x-6 sm:px-6 lg:px-8">
       <MobileNav />
 
-      {/* Business name */}
       {business && (
-        <span className="hidden sm:block text-sm font-medium text-muted-foreground truncate">
-          {business.name}
-        </span>
+        <div className="hidden min-w-0 sm:block">
+          <p className="truncate text-sm font-medium text-foreground">{business.name}</p>
+          <p className="text-xs text-muted-foreground">Lead follow-up workspace</p>
+        </div>
       )}
 
-      {/* Spacer */}
       <div className="flex flex-1 items-center justify-end gap-x-4">
-        {/* User menu */}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={<Button variant="ghost" className="relative h-9 w-9 rounded-full" />}

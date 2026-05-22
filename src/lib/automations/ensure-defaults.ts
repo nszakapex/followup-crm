@@ -74,17 +74,21 @@ const DEFAULTS: DefaultAutomation[] = [
 export async function ensureDefaultAutomations(
   supabase: SupabaseClient,
   businessId: string
-): Promise<void> {
-  const { data: existing } = await supabase
+): Promise<{ success: true } | { success: false; error: string }> {
+  const { data: existing, error: existingError } = await supabase
     .from("automations")
     .select("type")
     .eq("business_id", businessId);
+
+  if (existingError) {
+    return { success: false, error: existingError.message };
+  }
 
   const existingTypes = new Set((existing ?? []).map((a: { type: string }) => a.type));
 
   const missing = DEFAULTS.filter((d) => !existingTypes.has(d.type));
 
-  if (missing.length === 0) return;
+  if (missing.length === 0) return { success: true };
 
   const rows = missing.map((d) => ({
     business_id: businessId,
@@ -97,5 +101,11 @@ export async function ensureDefaultAutomations(
     channel: d.channel,
   }));
 
-  await supabase.from("automations").insert(rows);
+  const { error: insertError } = await supabase.from("automations").insert(rows);
+
+  if (insertError) {
+    return { success: false, error: insertError.message };
+  }
+
+  return { success: true };
 }
