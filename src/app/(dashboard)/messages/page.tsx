@@ -2,11 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, Mail, MessageSquare, Send } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
 import { PageHeader } from "@/components/ui/page-header";
+import { DEMO_EXTERNAL_CRM_NAME } from "@/lib/demo/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { Message, MessageChannel, MessageDirection, MessageStatus } from "@/types/database";
 
@@ -14,6 +16,7 @@ type MessageLead = {
   id: string;
   first_name: string;
   last_name: string | null;
+  external_crm_name: string | null;
 };
 
 type MessageRow = Pick<
@@ -90,7 +93,7 @@ export default async function MessagesPage() {
   const { data: messagesData, error: messagesError } = await supabase
     .from("messages")
     .select(
-      "id, lead_id, channel, direction, body, status, provider, sent_at, received_at, created_at, leads(id, first_name, last_name)"
+      "id, lead_id, channel, direction, body, status, provider, sent_at, received_at, created_at, leads(id, first_name, last_name, external_crm_name)"
     )
     .eq("business_id", profile.business_id)
     .order("created_at", { ascending: false })
@@ -100,6 +103,9 @@ export default async function MessagesPage() {
   const outbound = messages.filter((message) => message.direction === "outbound").length;
   const inbound = messages.filter((message) => message.direction === "inbound").length;
   const failed = messages.filter((message) => message.status === "failed").length;
+  const hasDemoData = messages.some(
+    (message) => getLead(message)?.external_crm_name === DEMO_EXTERNAL_CRM_NAME
+  );
 
   return (
     <div className="space-y-8">
@@ -107,6 +113,13 @@ export default async function MessagesPage() {
         eyebrow="Conversation history"
         title="Messages"
         description="A focused record of SMS, email, and internal notes connected to your leads."
+        actions={
+          hasDemoData ? (
+            <Badge variant="outline" className="border-border/70 bg-muted/40 text-muted-foreground">
+              Demo data
+            </Badge>
+          ) : null
+        }
       />
 
       {messagesError && (

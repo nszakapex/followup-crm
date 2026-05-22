@@ -4,12 +4,14 @@ import { ArrowRight, Clock, Mail, Phone, Users } from "lucide-react";
 
 import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
 import { LeadFilters } from "@/components/leads/lead-filters";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { DEMO_EXTERNAL_CRM_NAME } from "@/lib/demo/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { Lead, LeadStatus } from "@/types/database";
 
@@ -69,15 +71,18 @@ export default async function LeadsPage(props: {
     query,
     supabase
       .from("leads")
-      .select("id, status, created_at, next_followup_at")
+      .select("id, status, created_at, next_followup_at, external_crm_name")
       .eq("business_id", profile.business_id),
   ]);
 
   const leads = (leadsData ?? []) as Lead[];
   const allLeads = (allLeadsData ?? []) as Pick<
     Lead,
-    "id" | "status" | "created_at" | "next_followup_at"
+    "id" | "status" | "created_at" | "next_followup_at" | "external_crm_name"
   >[];
+  const hasDemoData = allLeads.some(
+    (lead) => lead.external_crm_name === DEMO_EXTERNAL_CRM_NAME
+  );
   const weekStart = new Date();
   weekStart.setHours(0, 0, 0, 0);
   weekStart.setDate(weekStart.getDate() - 6);
@@ -100,7 +105,16 @@ export default async function LeadsPage(props: {
         eyebrow="Pipeline"
         title="Leads"
         description="A clean view of every opportunity, where it stands, and what needs attention next."
-        actions={<AddLeadDialog />}
+        actions={
+          <>
+            {hasDemoData && (
+              <Badge variant="outline" className="border-border/70 bg-muted/40 text-muted-foreground">
+                Demo data
+              </Badge>
+            )}
+            <AddLeadDialog />
+          </>
+        }
       />
 
       {pageError && (

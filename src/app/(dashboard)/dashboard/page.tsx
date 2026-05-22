@@ -23,6 +23,7 @@ import { MetricCard } from "@/components/ui/metric-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ReadinessPanel, type ReadinessItem } from "@/components/ui/readiness-panel";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { DEMO_EXTERNAL_CRM_NAME } from "@/lib/demo/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { Automation, Lead, Message, ReviewRequest } from "@/types/database";
 
@@ -37,6 +38,7 @@ type LeadRow = Pick<
   | "email"
   | "notes"
   | "ai_summary"
+  | "external_crm_name"
   | "next_followup_at"
   | "created_at"
 >;
@@ -188,7 +190,7 @@ export default async function DashboardPage() {
     supabase
       .from("leads")
       .select(
-        "id, first_name, last_name, status, source, phone, email, notes, ai_summary, next_followup_at, created_at"
+        "id, first_name, last_name, status, source, phone, email, notes, ai_summary, external_crm_name, next_followup_at, created_at"
       )
       .eq("business_id", businessId)
       .order("created_at", { ascending: false }),
@@ -271,6 +273,9 @@ export default async function DashboardPage() {
     smsProviderConfigured ? "SMS" : null,
     emailProviderConfigured ? "Email" : null,
   ].filter(Boolean);
+  const hasDemoData = leads.some(
+    (lead) => lead.external_crm_name === DEMO_EXTERNAL_CRM_NAME
+  );
 
   const chartSource =
     leads.length > 0
@@ -473,7 +478,16 @@ export default async function DashboardPage() {
           profile.name?.split(" ")[0] ?? "there"
         }`}
         description={`A calm read on ${business?.name ?? "your business"}: leads, follow-up, reviews, and automation health in one place.`}
-        actions={<AddLeadDialog />}
+        actions={
+          <>
+            {hasDemoData && (
+              <Badge variant="outline" className="border-border/70 bg-muted/40 text-muted-foreground">
+                Demo data
+              </Badge>
+            )}
+            <AddLeadDialog />
+          </>
+        }
       />
 
       {pageError && (
@@ -562,7 +576,9 @@ export default async function DashboardPage() {
           <CardHeader>
             <CardTitle>{chartSource.label}</CardTitle>
             <CardDescription>
-              Real activity from the last 30 days. No sample data is shown.
+              {hasDemoData
+                ? "Sample demo activity from seeded records is included."
+                : "Real activity from the last 30 days. No sample data is shown."}
             </CardDescription>
           </CardHeader>
           <CardContent>

@@ -11,6 +11,7 @@ import {
 
 import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
 import { SendReviewRequestDialog } from "@/components/reviews/send-review-request-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -25,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { DEMO_EXTERNAL_CRM_NAME } from "@/lib/demo/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { MessageChannel, ReviewRequestStatus } from "@/types/database";
 
@@ -46,6 +48,7 @@ type ReviewRequestLead = {
   last_name: string | null;
   phone: string | null;
   email: string | null;
+  external_crm_name: string | null;
 };
 
 type ReviewLeadOption = {
@@ -116,7 +119,7 @@ export default async function ReviewsPage() {
     supabase
       .from("review_requests")
       .select(
-        "id, lead_id, customer_name, channel, status, sent_at, clicked_at, created_at, leads(id, first_name, last_name, phone, email)"
+        "id, lead_id, customer_name, channel, status, sent_at, clicked_at, created_at, leads(id, first_name, last_name, phone, email, external_crm_name)"
       )
       .eq("business_id", profile.business_id)
       .order("created_at", { ascending: false }),
@@ -130,6 +133,9 @@ export default async function ReviewsPage() {
   const reviewRequests = (reviewRequestsData ?? []) as unknown as ReviewRequestRow[];
   const leads = (leadsData ?? []) as ReviewLeadOption[];
   const hasGoogleReviewLink = Boolean(business?.google_review_link);
+  const hasDemoData = reviewRequests.some(
+    (request) => getLinkedLead(request)?.external_crm_name === DEMO_EXTERNAL_CRM_NAME
+  );
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const pageError =
     businessError?.message ?? reviewRequestsError?.message ?? leadsError?.message ?? null;
@@ -155,19 +161,26 @@ export default async function ReviewsPage() {
         title="Reviews"
         description="Send real customers a simple request to leave an honest Google review, then track clicks without adding friction."
         actions={
-          hasGoogleReviewLink && leads.length > 0 ? (
-            <SendReviewRequestDialog
-              leads={leads}
-              hasGoogleReviewLink={hasGoogleReviewLink}
-            />
-          ) : hasGoogleReviewLink ? (
-            <AddLeadDialog />
-          ) : (
-            <Button variant="outline" render={<Link href="/settings" />}>
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Settings
-            </Button>
-          )
+          <>
+            {hasDemoData && (
+              <Badge variant="outline" className="border-border/70 bg-muted/40 text-muted-foreground">
+                Demo data
+              </Badge>
+            )}
+            {hasGoogleReviewLink && leads.length > 0 ? (
+              <SendReviewRequestDialog
+                leads={leads}
+                hasGoogleReviewLink={hasGoogleReviewLink}
+              />
+            ) : hasGoogleReviewLink ? (
+              <AddLeadDialog />
+            ) : (
+              <Button variant="outline" render={<Link href="/settings" />}>
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Settings
+              </Button>
+            )}
+          </>
         }
       />
 
