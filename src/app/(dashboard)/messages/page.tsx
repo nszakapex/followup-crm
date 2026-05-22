@@ -10,7 +10,7 @@ import { MetricCard } from "@/components/ui/metric-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DEMO_EXTERNAL_CRM_NAME } from "@/lib/demo/constants";
 import { createClient } from "@/lib/supabase/server";
-import type { Message, MessageChannel, MessageDirection, MessageStatus } from "@/types/database";
+import type { Message, MessageChannel, MessageDirection } from "@/types/database";
 
 type MessageLead = {
   id: string;
@@ -28,6 +28,8 @@ type MessageRow = Pick<
   | "body"
   | "status"
   | "provider"
+  | "provider_message_id"
+  | "error_message"
   | "sent_at"
   | "received_at"
   | "created_at"
@@ -68,8 +70,17 @@ function getDirectionLabel(direction: MessageDirection) {
   return "Internal";
 }
 
-function getStatusLabel(status: MessageStatus) {
-  return status.charAt(0).toUpperCase() + status.slice(1);
+function getStatusLabel(message: MessageRow) {
+  if (message.provider === "test_mode") return "Skipped/Test";
+  if (message.provider === "blocked") return "Blocked";
+  return message.status.charAt(0).toUpperCase() + message.status.slice(1);
+}
+
+function getProviderLabel(provider: string | null) {
+  if (!provider) return "Manual";
+  if (provider === "test_mode") return "Test mode";
+  if (provider === "demo_seed") return "Demo seed";
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
 export default async function MessagesPage() {
@@ -93,7 +104,7 @@ export default async function MessagesPage() {
   const { data: messagesData, error: messagesError } = await supabase
     .from("messages")
     .select(
-      "id, lead_id, channel, direction, body, status, provider, sent_at, received_at, created_at, leads(id, first_name, last_name, external_crm_name)"
+      "id, lead_id, channel, direction, body, status, provider, provider_message_id, error_message, sent_at, received_at, created_at, leads(id, first_name, last_name, external_crm_name)"
     )
     .eq("business_id", profile.business_id)
     .order("created_at", { ascending: false })
@@ -189,8 +200,11 @@ export default async function MessagesPage() {
                         </p>
                       </div>
                       <div className="text-xs text-muted-foreground md:text-right">
-                        <p>{getStatusLabel(message.status)}</p>
-                        <p className="mt-1">{message.provider || "manual"}</p>
+                        <p>{getStatusLabel(message)}</p>
+                        <p className="mt-1">{getProviderLabel(message.provider)}</p>
+                        {message.provider_message_id && (
+                          <p className="mt-1">Provider ID recorded</p>
+                        )}
                       </div>
                       <div className="flex items-center justify-between gap-3 md:justify-end">
                         <p className="text-xs text-muted-foreground">
@@ -200,6 +214,11 @@ export default async function MessagesPage() {
                           <ArrowRight className="h-4 w-4" />
                         </Button>
                       </div>
+                      {message.error_message && (
+                        <p className="text-xs leading-5 text-muted-foreground md:col-span-3">
+                          {message.error_message}
+                        </p>
+                      )}
                     </div>
                   </Link>
                 );

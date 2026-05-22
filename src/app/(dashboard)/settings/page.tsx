@@ -9,6 +9,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ReadinessPanel, type ReadinessItem } from "@/components/ui/readiness-panel";
+import {
+  getDeliveryModeLabel,
+  getEmailProviderReadiness,
+  getSmsProviderReadiness,
+  shouldSkipReviewDelivery,
+} from "@/lib/messaging/provider-config";
 import { createClient } from "@/lib/supabase/server";
 import type { Automation, BrandVoice, Business, Lead, ReviewRequest } from "@/types/database";
 
@@ -84,20 +90,13 @@ export default async function SettingsPage() {
   const activeAutomations = automations.filter((automation) => automation.enabled).length;
   const settingsStatusError =
     leadsError?.message ?? reviewRequestsError?.message ?? automationsError?.message ?? null;
-  const smsProviderConfigured = Boolean(
-    process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_AUTH_TOKEN &&
-      (process.env.TWILIO_PHONE_NUMBER ||
-        process.env.TWILIO_MESSAGING_SERVICE_SID ||
-        biz.twilio_from_number)
-  );
-  const emailProviderConfigured = Boolean(
-    process.env.RESEND_API_KEY &&
-      (process.env.RESEND_FROM_EMAIL || biz.resend_from_email)
-  );
+  const smsReadiness = getSmsProviderReadiness(biz.twilio_from_number);
+  const emailReadiness = getEmailProviderReadiness(biz.resend_from_email);
+  const deliverySkipped = shouldSkipReviewDelivery();
+  const deliveryModeLabel = getDeliveryModeLabel();
   const providerLabels = [
-    smsProviderConfigured ? "SMS" : null,
-    emailProviderConfigured ? "Email" : null,
+    smsReadiness.configured ? "SMS" : null,
+    emailReadiness.configured ? "Email" : null,
   ].filter(Boolean);
   const businessIdentityReady = Boolean(biz.name && biz.owner_email);
   const reviewLinkReady = Boolean(biz.google_review_link);
@@ -154,12 +153,18 @@ export default async function SettingsPage() {
       cta: "Open",
     },
     {
-      title: "Messaging provider",
+      title: "Delivery mode",
       description:
-        providerLabels.length > 0
+        deliverySkipped
+          ? "Review requests create records, but SMS/email delivery is skipped in test mode."
+          : providerLabels.length > 0
           ? `${providerLabels.join(" and ")} configured for live delivery.`
-          : "Mock delivery is available for local testing; live SMS/email setup is optional for now.",
-      status: providerLabels.length > 0 ? "complete" : "optional",
+          : "SMS and email provider setup is required before live delivery.",
+      status: deliverySkipped
+        ? "optional"
+        : providerLabels.length > 0
+          ? "complete"
+          : "needs_setup",
     },
     {
       title: "Review activity",
@@ -216,6 +221,47 @@ export default async function SettingsPage() {
             description="A compact check of what is ready and what still needs attention."
             items={settingsReadinessItems}
           />
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Provider readiness</CardTitle>
+              <CardDescription>
+                Safe delivery status without exposing provider credentials.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Review link</span>
+                <Badge variant={reviewLinkReady ? "secondary" : "outline"}>
+                  {reviewLinkReady ? "Ready" : "Missing"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">SMS delivery</span>
+                <Badge variant={smsReadiness.configured ? "secondary" : "outline"}>
+                  {smsReadiness.configured ? "Configured" : "Missing provider config"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Email delivery</span>
+                <Badge variant={emailReadiness.configured ? "secondary" : "outline"}>
+                  {emailReadiness.configured ? "Configured" : "Missing provider config"}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Test mode</span>
+                <Badge variant={deliverySkipped ? "outline" : "secondary"}>
+                  {deliveryModeLabel}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">SMS compliance</span>
+                <Badge variant="outline">
+                  {biz.sms_compliance_status ?? "not_configured"}
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>

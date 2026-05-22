@@ -20,6 +20,8 @@ interface SendReviewRequestParams {
 interface SendReviewRequestResult {
   success: boolean;
   reviewRequestId: string | null;
+  message?: string;
+  deliverySkipped?: boolean;
   error?: string;
 }
 
@@ -58,6 +60,12 @@ function getBusinessLookupError(businessId: string, message: string) {
     : "Business not found.";
 }
 
+function getBusinessQueryError(businessId: string, message: string) {
+  return isDevelopment()
+    ? `Business lookup failed for businessId: ${businessId || "[missing]"}. Supabase error: ${message}`
+    : "Business lookup failed.";
+}
+
 function getDatabaseError(action: string, message: string) {
   return isDevelopment()
     ? `${action}: ${message}`
@@ -82,7 +90,7 @@ function getTrackedReviewLink(clickToken: string | null, googleReviewLink: strin
  * - Loads the business to get the Google review link and name.
  * - Renders the template with lead/business variables.
  * - Creates a review_requests row.
- * - Sends via mock or real provider.
+ * - Sends via test mode, Twilio, or Resend after the row exists.
  */
 export async function sendReviewRequest(
   params: SendReviewRequestParams
@@ -128,7 +136,7 @@ export async function sendReviewRequest(
   // Load business
   const { data: business, error: businessError } = await supabase
     .from("businesses")
-    .select("name, google_review_link")
+    .select("name, google_review_link, twilio_from_number, resend_from_email")
     .eq("id", businessId)
     .maybeSingle();
 
@@ -146,14 +154,19 @@ export async function sendReviewRequest(
     businessLookupCode: businessError?.code ?? null,
   });
 
-  if (businessError || !business) {
-    const lookupMessage =
-      businessError?.message ?? "No matching business row returned.";
-
+  if (businessError) {
     return {
       success: false,
       reviewRequestId: null,
-      error: getBusinessLookupError(businessId, lookupMessage),
+      error: getBusinessQueryError(businessId, businessError.message),
+    };
+  }
+
+  if (!business) {
+    return {
+      success: false,
+      reviewRequestId: null,
+      error: getBusinessLookupError(businessId, "No matching business row returned."),
     };
   }
 
@@ -162,6 +175,38 @@ export async function sendReviewRequest(
       success: false,
       reviewRequestId: null,
       error: "Google review link is not configured. Add it in Settings.",
+    };
+  }
+
+  if (channel !== "sms" && channel !== "email") {
+    return {
+      success: false,
+      reviewRequestId: null,
+      error: "Unsupported review request channel.",
+    };
+  }
+
+  if (channel === "sms" && !phone) {
+    return {
+      success: false,
+      reviewRequestId: null,
+      error: "Customer phone number is required for SMS review requests.",
+    };
+  }
+
+  if (channel === "sms" && optedOut) {
+    return {
+      success: false,
+      reviewRequestId: null,
+      error: "This customer has opted out of review requests.",
+    };
+  }
+
+  if (channel === "email" && !email) {
+    return {
+      success: false,
+      reviewRequestId: null,
+      error: "Customer email is required for email review requests.",
     };
   }
 
@@ -245,22 +290,30 @@ export async function sendReviewRequest(
     }
   }
 
-  // Send via appropriate channel
-  if (channel === "sms" && phone) {
-    const smsResult = await sendSms({
+  // Send via appropriate channel. The delivery helpers log the message row and
+  // return a structured result for real, skipped, and failed deliveries.
+  if (channel === "sms") {
+    const deliveryResult = await sendSms({
       businessId,
       leadId,
       to: phone,
       body: messageBody,
       optedOut,
+      twilioFromNumber: business.twilio_from_number,
     });
 
-    const newStatus = smsResult.success ? "sent" : "failed";
+    const newStatus = deliveryResult.success
+      ? deliveryResult.skipped
+        ? "pending"
+        : "sent"
+      : "failed";
     const { error: statusUpdateError } = await supabase
       .from("review_requests")
       .update({
         status: newStatus,
-        sent_at: smsResult.success ? new Date().toISOString() : null,
+        sent_at: deliveryResult.success && !deliveryResult.skipped
+          ? new Date().toISOString()
+          : null,
       })
       .eq("id", reviewRequest.id);
 
@@ -276,27 +329,36 @@ export async function sendReviewRequest(
     }
 
     return {
-      success: smsResult.success,
+      success: deliveryResult.success,
       reviewRequestId: reviewRequest.id,
-      error: smsResult.error,
+      message: deliveryResult.userMessage,
+      deliverySkipped: deliveryResult.skipped,
+      error: deliveryResult.success ? undefined : deliveryResult.error,
     };
   }
 
-  if (channel === "email" && email) {
-    const emailResult = await sendEmail({
+  if (channel === "email") {
+    const deliveryResult = await sendEmail({
       businessId,
       leadId,
       to: email,
       subject: `${business.name} - Would you leave us a review?`,
       body: messageBody,
+      fromEmail: business.resend_from_email,
     });
 
-    const newStatus = emailResult.success ? "sent" : "failed";
+    const newStatus = deliveryResult.success
+      ? deliveryResult.skipped
+        ? "pending"
+        : "sent"
+      : "failed";
     const { error: statusUpdateError } = await supabase
       .from("review_requests")
       .update({
         status: newStatus,
-        sent_at: emailResult.success ? new Date().toISOString() : null,
+        sent_at: deliveryResult.success && !deliveryResult.skipped
+          ? new Date().toISOString()
+          : null,
       })
       .eq("id", reviewRequest.id);
 
@@ -312,32 +374,17 @@ export async function sendReviewRequest(
     }
 
     return {
-      success: emailResult.success,
+      success: deliveryResult.success,
       reviewRequestId: reviewRequest.id,
-      error: emailResult.error,
-    };
-  }
-
-  // No valid contact for the chosen channel
-  const { error: failedStatusError } = await supabase
-    .from("review_requests")
-    .update({ status: "failed" })
-    .eq("id", reviewRequest.id);
-
-  if (failedStatusError) {
-    return {
-      success: false,
-      reviewRequestId: reviewRequest.id,
-      error: getDatabaseError(
-        "Failed to update review request status",
-        failedStatusError.message
-      ),
+      message: deliveryResult.userMessage,
+      deliverySkipped: deliveryResult.skipped,
+      error: deliveryResult.success ? undefined : deliveryResult.error,
     };
   }
 
   return {
     success: false,
     reviewRequestId: reviewRequest.id,
-    error: `No ${channel === "sms" ? "phone number" : "email address"} available for this lead.`,
+    error: "Unsupported review request channel.",
   };
 }

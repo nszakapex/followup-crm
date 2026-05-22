@@ -25,6 +25,12 @@ function getBusinessLookupError(businessId: string, message: string) {
     : "Business not found.";
 }
 
+function getBusinessQueryError(businessId: string, message: string) {
+  return isDevelopment()
+    ? `Business lookup failed for businessId: ${businessId}. Supabase error: ${message}`
+    : "Business lookup failed.";
+}
+
 function getDatabaseError(action: string, message: string) {
   return isDevelopment() ? `${action}: ${message}` : action;
 }
@@ -53,7 +59,7 @@ export async function sendManualReviewRequest(formData: FormData) {
   }
 
   if (!isManualReviewChannel(channel)) {
-    return { success: false as const, error: "Choose SMS or email." };
+    return { success: false as const, error: "Review request channel is required." };
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -88,13 +94,20 @@ export async function sendManualReviewRequest(formData: FormData) {
     businessLookupError: businessError?.message ?? null,
   });
 
-  if (businessError || !business) {
-    const lookupMessage =
-      businessError?.message ?? "No matching business row returned.";
-
+  if (businessError) {
     return {
       success: false as const,
-      error: getBusinessLookupError(resolvedBusinessId, lookupMessage),
+      error: getBusinessQueryError(resolvedBusinessId, businessError.message),
+    };
+  }
+
+  if (!business) {
+    return {
+      success: false as const,
+      error: getBusinessLookupError(
+        resolvedBusinessId,
+        "No matching business row returned."
+      ),
     };
   }
 
@@ -122,15 +135,24 @@ export async function sendManualReviewRequest(formData: FormData) {
   }
 
   if (channel === "sms" && !lead.phone) {
-    return { success: false as const, error: "This customer does not have a phone number." };
+    return {
+      success: false as const,
+      error: "Customer phone number is required for SMS review requests.",
+    };
   }
 
   if (channel === "sms" && lead.opted_out) {
-    return { success: false as const, error: "This customer has opted out of SMS messages." };
+    return {
+      success: false as const,
+      error: "This customer has opted out of review requests.",
+    };
   }
 
   if (channel === "email" && !lead.email) {
-    return { success: false as const, error: "This customer does not have an email address." };
+    return {
+      success: false as const,
+      error: "Customer email is required for email review requests.",
+    };
   }
 
   const customerName = [lead.first_name, lead.last_name].filter(Boolean).join(" ");
@@ -155,9 +177,12 @@ export async function sendManualReviewRequest(formData: FormData) {
   }
 
   revalidatePath("/reviews");
+  revalidatePath("/messages");
+  revalidatePath("/dashboard");
 
   return {
     success: true as const,
     reviewRequestId: result.reviewRequestId,
+    message: result.message ?? "Review request sent.",
   };
 }

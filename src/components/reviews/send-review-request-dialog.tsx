@@ -67,7 +67,7 @@ export function SendReviewRequestDialog({
         return;
       }
 
-      toast.success("Review request sent");
+      toast.success(result.message ?? "Review request sent");
       setOpen(false);
       router.refresh();
     });
@@ -162,7 +162,7 @@ export function SendReviewRequestDialog({
                   )}
                 >
                   {smsBlocked
-                    ? "This customer has opted out of SMS messages."
+                    ? "This customer has opted out of review requests."
                     : `Add a ${channel === "sms" ? "phone number" : "email address"} before sending by ${channel.toUpperCase()}.`}
                 </p>
               )}

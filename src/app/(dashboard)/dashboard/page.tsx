@@ -24,6 +24,11 @@ import { PageHeader } from "@/components/ui/page-header";
 import { ReadinessPanel, type ReadinessItem } from "@/components/ui/readiness-panel";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DEMO_EXTERNAL_CRM_NAME } from "@/lib/demo/constants";
+import {
+  getEmailProviderReadiness,
+  getSmsProviderReadiness,
+  shouldSkipReviewDelivery,
+} from "@/lib/messaging/provider-config";
 import { createClient } from "@/lib/supabase/server";
 import type { Automation, Lead, Message, ReviewRequest } from "@/types/database";
 
@@ -258,20 +263,12 @@ export default async function DashboardPage() {
   const hasReviewLink = Boolean(business?.google_review_link);
   const reviewRequestsEnabled = Boolean(business?.review_requests_enabled);
   const leadFollowupEnabled = Boolean(business?.lead_followup_enabled);
-  const smsProviderConfigured = Boolean(
-    process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_AUTH_TOKEN &&
-      (process.env.TWILIO_PHONE_NUMBER ||
-        process.env.TWILIO_MESSAGING_SERVICE_SID ||
-        business?.twilio_from_number)
-  );
-  const emailProviderConfigured = Boolean(
-    process.env.RESEND_API_KEY &&
-      (process.env.RESEND_FROM_EMAIL || business?.resend_from_email)
-  );
+  const smsReadiness = getSmsProviderReadiness(business?.twilio_from_number);
+  const emailReadiness = getEmailProviderReadiness(business?.resend_from_email);
+  const deliverySkipped = shouldSkipReviewDelivery();
   const providerLabels = [
-    smsProviderConfigured ? "SMS" : null,
-    emailProviderConfigured ? "Email" : null,
+    smsReadiness.configured ? "SMS" : null,
+    emailReadiness.configured ? "Email" : null,
   ].filter(Boolean);
   const hasDemoData = leads.some(
     (lead) => lead.external_crm_name === DEMO_EXTERNAL_CRM_NAME
@@ -384,12 +381,18 @@ export default async function DashboardPage() {
       cta: "Open",
     },
     {
-      title: "Messaging providers",
+      title: "Delivery mode",
       description:
-        providerLabels.length > 0
+        deliverySkipped
+          ? "Review requests create records, but provider delivery is skipped in test mode."
+          : providerLabels.length > 0
           ? `${providerLabels.join(" and ")} configured for live delivery.`
-          : "Local smoke tests can use mock SMS and email delivery until live providers are connected.",
-      status: providerLabels.length > 0 ? "complete" : "optional",
+          : "SMS and email providers are not configured for live delivery yet.",
+      status: deliverySkipped
+        ? "optional"
+        : providerLabels.length > 0
+          ? "complete"
+          : "needs_setup",
       href: "/settings",
       cta: "Review",
     },

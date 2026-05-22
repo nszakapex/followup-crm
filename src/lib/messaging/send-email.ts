@@ -2,187 +2,290 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { getEmailProviderReadiness, shouldSkipReviewDelivery } from "@/lib/messaging/provider-config";
+import type { DeliveryResult } from "@/lib/messaging/types";
+
 interface SendEmailParams {
   businessId: string;
   leadId: string;
-  to: string;
+  to: string | null;
   subject: string;
   body: string;
   fromEmail?: string | null;
 }
 
-interface SendEmailResult {
-  success: boolean;
-  provider: string;
-  providerMessageId: string | null;
-  error?: string;
-}
+type MessageStatus = "pending" | "sent" | "delivered" | "failed" | "received";
 
 function createServiceClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
   );
 }
 
-function hasResendConfig(): boolean {
-  return !!process.env.RESEND_API_KEY;
+function isDevelopment() {
+  return process.env.NODE_ENV !== "production";
 }
 
-function getMessageLogError(errorMessage: string) {
-  return process.env.NODE_ENV !== "production"
-    ? `Failed to log email message: ${errorMessage}`
-    : "Failed to log message.";
+function withDevDetail(userMessage: string, detail?: string | null) {
+  return isDevelopment() && detail ? `${userMessage} ${detail}` : userMessage;
+}
+
+async function logEmailMessage({
+  businessId,
+  leadId,
+  body,
+  status,
+  provider,
+  providerMessageId = null,
+  errorMessage = null,
+}: {
+  businessId: string;
+  leadId: string;
+  body: string;
+  status: MessageStatus;
+  provider: string;
+  providerMessageId?: string | null;
+  errorMessage?: string | null;
+}) {
+  const supabase = createServiceClient();
+  const { error } = await supabase.from("messages").insert({
+    business_id: businessId,
+    lead_id: leadId,
+    channel: "email",
+    direction: "outbound",
+    body,
+    status,
+    provider,
+    provider_message_id: providerMessageId,
+    error_message: errorMessage,
+    sent_at: status === "sent" || status === "failed" ? new Date().toISOString() : null,
+  });
+
+  return error;
+}
+
+function messageLogFailure(message: string): DeliveryResult {
+  return {
+    success: false,
+    provider: "resend",
+    providerMessageId: null,
+    error: isDevelopment()
+      ? `Failed to log email message: ${message}`
+      : "Failed to log message.",
+    userMessage: "Failed to log message.",
+  };
 }
 
 /**
- * Send an email. Falls back to mock if Resend is not configured.
+ * Sends an email review request through Resend when fully configured.
  *
- * Logs the message to the messages table regardless of provider.
+ * Test/skip mode is checked before provider configuration and before any
+ * network call, so local/demo smoke tests cannot accidentally send real email.
  */
-export async function sendEmail(params: SendEmailParams): Promise<SendEmailResult> {
+export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult> {
   const { businessId, leadId, to, subject, body, fromEmail } = params;
-  const supabase = createServiceClient();
+  const storedBody = `Subject: ${subject}\n\n${body}`;
 
-  // Use real Resend if configured
-  if (hasResendConfig()) {
-    try {
-      const from =
-        fromEmail ||
-        process.env.RESEND_FROM_EMAIL ||
-        "noreply@example.com";
+  if (!to) {
+    const userMessage = "Customer email is required for email review requests.";
+    const messageError = await logEmailMessage({
+      businessId,
+      leadId,
+      body: storedBody,
+      status: "failed",
+      provider: "resend",
+      errorMessage: userMessage,
+    });
 
-      const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from,
-          to,
-          subject,
-          text: body,
-        }),
-      });
+    if (messageError) return messageLogFailure(messageError.message);
 
-      const result = await response.json();
+    return {
+      success: false,
+      provider: "resend",
+      providerMessageId: null,
+      error: userMessage,
+      userMessage,
+    };
+  }
 
-      if (!response.ok) {
-        const { error: messageInsertError } = await supabase.from("messages").insert({
-          business_id: businessId,
-          lead_id: leadId,
-          channel: "email",
-          direction: "outbound",
-          body: `Subject: ${subject}\n\n${body}`,
-          status: "failed",
-          provider: "resend",
-          error_message: result.message || "Resend API error",
-          sent_at: new Date().toISOString(),
-        });
+  if (!body.trim()) {
+    const userMessage = "Review request message is required.";
+    const messageError = await logEmailMessage({
+      businessId,
+      leadId,
+      body: storedBody,
+      status: "failed",
+      provider: "resend",
+      errorMessage: userMessage,
+    });
 
-        if (messageInsertError) {
-          return {
-            success: false,
-            provider: "resend",
-            providerMessageId: null,
-            error: getMessageLogError(messageInsertError.message),
-          };
-        }
+    if (messageError) return messageLogFailure(messageError.message);
 
-        return {
-          success: false,
-          provider: "resend",
-          providerMessageId: null,
-          error: result.message || "Resend API error",
-        };
-      }
+    return {
+      success: false,
+      provider: "resend",
+      providerMessageId: null,
+      error: userMessage,
+      userMessage,
+    };
+  }
 
-      const { error: messageInsertError } = await supabase.from("messages").insert({
-        business_id: businessId,
-        lead_id: leadId,
-        channel: "email",
-        direction: "outbound",
-        body: `Subject: ${subject}\n\n${body}`,
-        status: "sent",
-        provider: "resend",
-        provider_message_id: result.id,
-        sent_at: new Date().toISOString(),
-      });
+  if (shouldSkipReviewDelivery()) {
+    const userMessage = "Review request created. Delivery skipped in test mode.";
+    const messageError = await logEmailMessage({
+      businessId,
+      leadId,
+      body: storedBody,
+      status: "pending",
+      provider: "test_mode",
+    });
 
-      if (messageInsertError) {
-        return {
-          success: false,
-          provider: "resend",
-          providerMessageId: result.id,
-          error: getMessageLogError(messageInsertError.message),
-        };
-      }
-
+    if (messageError) {
       return {
-        success: true,
-        provider: "resend",
-        providerMessageId: result.id,
+        success: false,
+        provider: "test_mode",
+        providerMessageId: null,
+        skipped: true,
+        error: isDevelopment()
+          ? `Failed to log email message: ${messageError.message}`
+          : "Failed to log message.",
+        userMessage: "Failed to log message.",
       };
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Unknown Resend error";
+    }
 
-      const { error: messageInsertError } = await supabase.from("messages").insert({
-        business_id: businessId,
-        lead_id: leadId,
-        channel: "email",
-        direction: "outbound",
-        body: `Subject: ${subject}\n\n${body}`,
+    return {
+      success: true,
+      provider: "test_mode",
+      providerMessageId: null,
+      skipped: true,
+      userMessage,
+    };
+  }
+
+  const readiness = getEmailProviderReadiness(fromEmail);
+
+  if (!readiness.configured) {
+    const userMessage = "Email provider is not configured.";
+    const messageError = await logEmailMessage({
+      businessId,
+      leadId,
+      body: storedBody,
+      status: "failed",
+      provider: "resend",
+      errorMessage: userMessage,
+    });
+
+    if (messageError) return messageLogFailure(messageError.message);
+
+    return {
+      success: false,
+      provider: "resend",
+      providerMessageId: null,
+      error: withDevDetail(userMessage, readiness.reason),
+      userMessage,
+    };
+  }
+
+  try {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: readiness.fromEmail,
+        to,
+        subject,
+        text: body,
+      }),
+    });
+    const result = (await response.json().catch(() => ({}))) as {
+      id?: string;
+      message?: string;
+    };
+
+    if (!response.ok) {
+      const userMessage = "Email delivery failed.";
+      const detail = result.message || `Resend returned HTTP ${response.status}.`;
+      const messageError = await logEmailMessage({
+        businessId,
+        leadId,
+        body: storedBody,
         status: "failed",
         provider: "resend",
-        error_message: errorMsg,
+        errorMessage: userMessage,
       });
 
-      if (messageInsertError) {
-        return {
-          success: false,
-          provider: "resend",
-          providerMessageId: null,
-          error: getMessageLogError(messageInsertError.message),
-        };
-      }
+      if (messageError) return messageLogFailure(messageError.message);
+
+      console.error("[messaging.email] Resend delivery failed", {
+        businessId,
+        leadId,
+        status: response.status,
+        detail,
+      });
 
       return {
         success: false,
         provider: "resend",
         providerMessageId: null,
-        error: errorMsg,
+        error: withDevDetail(userMessage, detail),
+        userMessage,
       };
     }
-  }
 
-  // Mock fallback — no real email sent
-  const mockId = `mock_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const providerMessageId = result.id ?? null;
+    const messageError = await logEmailMessage({
+      businessId,
+      leadId,
+      body: storedBody,
+      status: "sent",
+      provider: "resend",
+      providerMessageId,
+    });
 
-  const { error: messageInsertError } = await supabase.from("messages").insert({
-    business_id: businessId,
-    lead_id: leadId,
-    channel: "email",
-    direction: "outbound",
-    body: `Subject: ${subject}\n\n${body}`,
-    status: "sent",
-    provider: "mock_resend",
-    provider_message_id: mockId,
-    sent_at: new Date().toISOString(),
-  });
+    if (messageError) return messageLogFailure(messageError.message);
 
-  if (messageInsertError) {
+    return {
+      success: true,
+      provider: "resend",
+      providerMessageId,
+      userMessage: "Review request sent.",
+    };
+  } catch (error) {
+    const userMessage = "Email delivery failed.";
+    const detail = error instanceof Error ? error.message : "Unknown Resend error.";
+    const messageError = await logEmailMessage({
+      businessId,
+      leadId,
+      body: storedBody,
+      status: "failed",
+      provider: "resend",
+      errorMessage: userMessage,
+    });
+
+    if (messageError) return messageLogFailure(messageError.message);
+
+    console.error("[messaging.email] Resend delivery exception", {
+      businessId,
+      leadId,
+      detail,
+    });
+
     return {
       success: false,
-      provider: "mock_resend",
+      provider: "resend",
       providerMessageId: null,
-      error: getMessageLogError(messageInsertError.message),
+      error: withDevDetail(userMessage, detail),
+      userMessage,
     };
   }
-
-  return {
-    success: true,
-    provider: "mock_resend",
-    providerMessageId: mockId,
-  };
 }

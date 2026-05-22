@@ -2,233 +2,310 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
+import { getSmsProviderReadiness, shouldSkipReviewDelivery } from "@/lib/messaging/provider-config";
+import type { DeliveryResult } from "@/lib/messaging/types";
+
 interface SendSmsParams {
   businessId: string;
   leadId: string;
-  to: string;
+  to: string | null;
   body: string;
   optedOut: boolean;
   twilioFromNumber?: string | null;
 }
 
-interface SendSmsResult {
-  success: boolean;
-  provider: string;
-  providerMessageId: string | null;
-  error?: string;
-}
+type MessageStatus = "pending" | "sent" | "delivered" | "failed" | "received";
 
 function createServiceClient() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
   );
 }
 
-function hasTwilioConfig(): boolean {
-  return !!(
-    process.env.TWILIO_ACCOUNT_SID &&
-    process.env.TWILIO_AUTH_TOKEN &&
-    (process.env.TWILIO_PHONE_NUMBER || process.env.TWILIO_MESSAGING_SERVICE_SID)
-  );
+function isDevelopment() {
+  return process.env.NODE_ENV !== "production";
 }
 
-function getMessageLogError(errorMessage: string) {
-  return process.env.NODE_ENV !== "production"
-    ? `Failed to log SMS message: ${errorMessage}`
-    : "Failed to log message.";
+function withDevDetail(userMessage: string, detail?: string | null) {
+  return isDevelopment() && detail ? `${userMessage} ${detail}` : userMessage;
 }
 
-/**
- * Send an SMS message. Falls back to mock if Twilio is not configured.
- *
- * - Blocks outbound if the lead has opted out.
- * - Logs the message to the messages table regardless of provider.
- */
-export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
-  const { businessId, leadId, to, body, optedOut, twilioFromNumber } = params;
+async function logSmsMessage({
+  businessId,
+  leadId,
+  body,
+  status,
+  provider,
+  providerMessageId = null,
+  errorMessage = null,
+}: {
+  businessId: string;
+  leadId: string;
+  body: string;
+  status: MessageStatus;
+  provider: string;
+  providerMessageId?: string | null;
+  errorMessage?: string | null;
+}) {
   const supabase = createServiceClient();
-
-  // Block if opted out
-  if (optedOut) {
-    const { error: messageInsertError } = await supabase.from("messages").insert({
-      business_id: businessId,
-      lead_id: leadId,
-      channel: "sms",
-      direction: "outbound",
-      body,
-      status: "failed",
-      provider: "blocked",
-      error_message: "Lead has opted out of SMS",
-    });
-
-    if (messageInsertError) {
-      return {
-        success: false,
-        provider: "blocked",
-        providerMessageId: null,
-        error: getMessageLogError(messageInsertError.message),
-      };
-    }
-
-    return {
-      success: false,
-      provider: "blocked",
-      providerMessageId: null,
-      error: "Lead has opted out of SMS. Message was not sent.",
-    };
-  }
-
-  // Use real Twilio if configured
-  if (hasTwilioConfig()) {
-    try {
-      const accountSid = process.env.TWILIO_ACCOUNT_SID!;
-      const authToken = process.env.TWILIO_AUTH_TOKEN!;
-      const from =
-        twilioFromNumber ||
-        process.env.TWILIO_PHONE_NUMBER ||
-        undefined;
-      const messagingServiceSid =
-        process.env.TWILIO_MESSAGING_SERVICE_SID || undefined;
-
-      const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
-
-      const formBody = new URLSearchParams();
-      formBody.append("To", to);
-      formBody.append("Body", body);
-      if (messagingServiceSid) {
-        formBody.append("MessagingServiceSid", messagingServiceSid);
-      } else if (from) {
-        formBody.append("From", from);
-      }
-
-      const response = await fetch(twilioUrl, {
-        method: "POST",
-        headers: {
-          Authorization:
-            "Basic " + btoa(`${accountSid}:${authToken}`),
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: formBody.toString(),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        const { error: messageInsertError } = await supabase.from("messages").insert({
-          business_id: businessId,
-          lead_id: leadId,
-          channel: "sms",
-          direction: "outbound",
-          body,
-          status: "failed",
-          provider: "twilio",
-          error_message: result.message || "Twilio API error",
-          sent_at: new Date().toISOString(),
-        });
-
-        if (messageInsertError) {
-          return {
-            success: false,
-            provider: "twilio",
-            providerMessageId: null,
-            error: getMessageLogError(messageInsertError.message),
-          };
-        }
-
-        return {
-          success: false,
-          provider: "twilio",
-          providerMessageId: null,
-          error: result.message || "Twilio API error",
-        };
-      }
-
-      const { error: messageInsertError } = await supabase.from("messages").insert({
-        business_id: businessId,
-        lead_id: leadId,
-        channel: "sms",
-        direction: "outbound",
-        body,
-        status: "sent",
-        provider: "twilio",
-        provider_message_id: result.sid,
-        sent_at: new Date().toISOString(),
-      });
-
-      if (messageInsertError) {
-        return {
-          success: false,
-          provider: "twilio",
-          providerMessageId: result.sid,
-          error: getMessageLogError(messageInsertError.message),
-        };
-      }
-
-      return {
-        success: true,
-        provider: "twilio",
-        providerMessageId: result.sid,
-      };
-    } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : "Unknown Twilio error";
-
-      const { error: messageInsertError } = await supabase.from("messages").insert({
-        business_id: businessId,
-        lead_id: leadId,
-        channel: "sms",
-        direction: "outbound",
-        body,
-        status: "failed",
-        provider: "twilio",
-        error_message: errorMsg,
-      });
-
-      if (messageInsertError) {
-        return {
-          success: false,
-          provider: "twilio",
-          providerMessageId: null,
-          error: getMessageLogError(messageInsertError.message),
-        };
-      }
-
-      return {
-        success: false,
-        provider: "twilio",
-        providerMessageId: null,
-        error: errorMsg,
-      };
-    }
-  }
-
-  // Mock fallback — no real SMS sent
-  const mockId = `mock_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-  const { error: messageInsertError } = await supabase.from("messages").insert({
+  const { error } = await supabase.from("messages").insert({
     business_id: businessId,
     lead_id: leadId,
     channel: "sms",
     direction: "outbound",
     body,
-    status: "sent",
-    provider: "mock_twilio",
-    provider_message_id: mockId,
-    sent_at: new Date().toISOString(),
+    status,
+    provider,
+    provider_message_id: providerMessageId,
+    error_message: errorMessage,
+    sent_at: status === "sent" || status === "failed" ? new Date().toISOString() : null,
   });
 
-  if (messageInsertError) {
+  return error;
+}
+
+function messageLogFailure(provider: DeliveryResult["provider"], message: string): DeliveryResult {
+  return {
+    success: false,
+    provider,
+    providerMessageId: null,
+    error: isDevelopment()
+      ? `Failed to log SMS message: ${message}`
+      : "Failed to log message.",
+    userMessage: "Failed to log message.",
+  };
+}
+
+/**
+ * Sends an SMS review request through Twilio when fully configured.
+ *
+ * Test/skip mode is checked before provider configuration and before any
+ * network call, so local/demo smoke tests cannot accidentally send real SMS.
+ */
+export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
+  const { businessId, leadId, to, body, optedOut, twilioFromNumber } = params;
+
+  if (!to) {
+    const userMessage = "Customer phone number is required for SMS review requests.";
+    const messageError = await logSmsMessage({
+      businessId,
+      leadId,
+      body,
+      status: "failed",
+      provider: "twilio",
+      errorMessage: userMessage,
+    });
+
+    if (messageError) return messageLogFailure("twilio", messageError.message);
+
     return {
       success: false,
-      provider: "mock_twilio",
+      provider: "twilio",
       providerMessageId: null,
-      error: getMessageLogError(messageInsertError.message),
+      error: userMessage,
+      userMessage,
     };
   }
 
-  return {
-    success: true,
-    provider: "mock_twilio",
-    providerMessageId: mockId,
-  };
+  if (!body.trim()) {
+    const userMessage = "Review request message is required.";
+    const messageError = await logSmsMessage({
+      businessId,
+      leadId,
+      body,
+      status: "failed",
+      provider: "twilio",
+      errorMessage: userMessage,
+    });
+
+    if (messageError) return messageLogFailure("twilio", messageError.message);
+
+    return {
+      success: false,
+      provider: "twilio",
+      providerMessageId: null,
+      error: userMessage,
+      userMessage,
+    };
+  }
+
+  if (optedOut) {
+    const userMessage = "This customer has opted out of review requests.";
+    const messageError = await logSmsMessage({
+      businessId,
+      leadId,
+      body,
+      status: "failed",
+      provider: "blocked",
+      errorMessage: userMessage,
+    });
+
+    if (messageError) return messageLogFailure("blocked", messageError.message);
+
+    return {
+      success: false,
+      provider: "blocked",
+      providerMessageId: null,
+      skipped: true,
+      error: userMessage,
+      userMessage,
+    };
+  }
+
+  if (shouldSkipReviewDelivery()) {
+    const userMessage = "Review request created. Delivery skipped in test mode.";
+    const messageError = await logSmsMessage({
+      businessId,
+      leadId,
+      body,
+      status: "pending",
+      provider: "test_mode",
+    });
+
+    if (messageError) return messageLogFailure("test_mode", messageError.message);
+
+    return {
+      success: true,
+      provider: "test_mode",
+      providerMessageId: null,
+      skipped: true,
+      userMessage,
+    };
+  }
+
+  const readiness = getSmsProviderReadiness(twilioFromNumber);
+
+  if (!readiness.configured) {
+    const userMessage = "SMS provider is not configured.";
+    const messageError = await logSmsMessage({
+      businessId,
+      leadId,
+      body,
+      status: "failed",
+      provider: "twilio",
+      errorMessage: userMessage,
+    });
+
+    if (messageError) return messageLogFailure("twilio", messageError.message);
+
+    return {
+      success: false,
+      provider: "twilio",
+      providerMessageId: null,
+      error: withDevDetail(userMessage, readiness.reason),
+      userMessage,
+    };
+  }
+
+  try {
+    const accountSid = process.env.TWILIO_ACCOUNT_SID!;
+    const authToken = process.env.TWILIO_AUTH_TOKEN!;
+    const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+    const formBody = new URLSearchParams();
+
+    formBody.append("To", to);
+    formBody.append("Body", body);
+
+    if (process.env.TWILIO_MESSAGING_SERVICE_SID) {
+      formBody.append("MessagingServiceSid", process.env.TWILIO_MESSAGING_SERVICE_SID);
+    } else if (readiness.sender) {
+      formBody.append("From", readiness.sender);
+    }
+
+    const response = await fetch(twilioUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: formBody.toString(),
+    });
+    const result = (await response.json().catch(() => ({}))) as {
+      sid?: string;
+      message?: string;
+    };
+
+    if (!response.ok) {
+      const userMessage = "SMS delivery failed.";
+      const detail = result.message || `Twilio returned HTTP ${response.status}.`;
+      const messageError = await logSmsMessage({
+        businessId,
+        leadId,
+        body,
+        status: "failed",
+        provider: "twilio",
+        errorMessage: userMessage,
+      });
+
+      if (messageError) return messageLogFailure("twilio", messageError.message);
+
+      console.error("[messaging.sms] Twilio delivery failed", {
+        businessId,
+        leadId,
+        status: response.status,
+        detail,
+      });
+
+      return {
+        success: false,
+        provider: "twilio",
+        providerMessageId: null,
+        error: withDevDetail(userMessage, detail),
+        userMessage,
+      };
+    }
+
+    const providerMessageId = result.sid ?? null;
+    const messageError = await logSmsMessage({
+      businessId,
+      leadId,
+      body,
+      status: "sent",
+      provider: "twilio",
+      providerMessageId,
+    });
+
+    if (messageError) return messageLogFailure("twilio", messageError.message);
+
+    return {
+      success: true,
+      provider: "twilio",
+      providerMessageId,
+      userMessage: "Review request sent.",
+    };
+  } catch (error) {
+    const userMessage = "SMS delivery failed.";
+    const detail = error instanceof Error ? error.message : "Unknown Twilio error.";
+    const messageError = await logSmsMessage({
+      businessId,
+      leadId,
+      body,
+      status: "failed",
+      provider: "twilio",
+      errorMessage: userMessage,
+    });
+
+    if (messageError) return messageLogFailure("twilio", messageError.message);
+
+    console.error("[messaging.sms] Twilio delivery exception", {
+      businessId,
+      leadId,
+      detail,
+    });
+
+    return {
+      success: false,
+      provider: "twilio",
+      providerMessageId: null,
+      error: withDevDetail(userMessage, detail),
+      userMessage,
+    };
+  }
 }
