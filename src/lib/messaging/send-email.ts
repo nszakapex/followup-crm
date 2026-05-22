@@ -29,6 +29,12 @@ function hasResendConfig(): boolean {
   return !!process.env.RESEND_API_KEY;
 }
 
+function getMessageLogError(errorMessage: string) {
+  return process.env.NODE_ENV !== "production"
+    ? `Failed to log email message: ${errorMessage}`
+    : "Failed to log message.";
+}
+
 /**
  * Send an email. Falls back to mock if Resend is not configured.
  *
@@ -63,7 +69,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
       const result = await response.json();
 
       if (!response.ok) {
-        await supabase.from("messages").insert({
+        const { error: messageInsertError } = await supabase.from("messages").insert({
           business_id: businessId,
           lead_id: leadId,
           channel: "email",
@@ -75,6 +81,15 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
           sent_at: new Date().toISOString(),
         });
 
+        if (messageInsertError) {
+          return {
+            success: false,
+            provider: "resend",
+            providerMessageId: null,
+            error: getMessageLogError(messageInsertError.message),
+          };
+        }
+
         return {
           success: false,
           provider: "resend",
@@ -83,7 +98,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
         };
       }
 
-      await supabase.from("messages").insert({
+      const { error: messageInsertError } = await supabase.from("messages").insert({
         business_id: businessId,
         lead_id: leadId,
         channel: "email",
@@ -95,6 +110,15 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
         sent_at: new Date().toISOString(),
       });
 
+      if (messageInsertError) {
+        return {
+          success: false,
+          provider: "resend",
+          providerMessageId: result.id,
+          error: getMessageLogError(messageInsertError.message),
+        };
+      }
+
       return {
         success: true,
         provider: "resend",
@@ -103,7 +127,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Unknown Resend error";
 
-      await supabase.from("messages").insert({
+      const { error: messageInsertError } = await supabase.from("messages").insert({
         business_id: businessId,
         lead_id: leadId,
         channel: "email",
@@ -113,6 +137,15 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
         provider: "resend",
         error_message: errorMsg,
       });
+
+      if (messageInsertError) {
+        return {
+          success: false,
+          provider: "resend",
+          providerMessageId: null,
+          error: getMessageLogError(messageInsertError.message),
+        };
+      }
 
       return {
         success: false,
@@ -126,7 +159,7 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
   // Mock fallback — no real email sent
   const mockId = `mock_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  await supabase.from("messages").insert({
+  const { error: messageInsertError } = await supabase.from("messages").insert({
     business_id: businessId,
     lead_id: leadId,
     channel: "email",
@@ -137,6 +170,15 @@ export async function sendEmail(params: SendEmailParams): Promise<SendEmailResul
     provider_message_id: mockId,
     sent_at: new Date().toISOString(),
   });
+
+  if (messageInsertError) {
+    return {
+      success: false,
+      provider: "mock_resend",
+      providerMessageId: null,
+      error: getMessageLogError(messageInsertError.message),
+    };
+  }
 
   return {
     success: true,

@@ -58,6 +58,12 @@ function getBusinessLookupError(businessId: string, message: string) {
     : "Business not found.";
 }
 
+function getDatabaseError(action: string, message: string) {
+  return isDevelopment()
+    ? `${action}: ${message}`
+    : action;
+}
+
 function getTrackedReviewLink(clickToken: string | null, googleReviewLink: string) {
   if (!clickToken) return googleReviewLink;
 
@@ -192,12 +198,25 @@ export async function sendReviewRequest(
     return {
       success: false,
       reviewRequestId: null,
-      error: "Failed to create review request: " + (insertError?.message || "Unknown error"),
+      error: getDatabaseError(
+        "Failed to create review request",
+        insertError?.message || "Unknown error"
+      ),
+    };
+  }
+
+  if (!reviewRequest.click_token) {
+    return {
+      success: false,
+      reviewRequestId: reviewRequest.id,
+      error: isDevelopment()
+        ? "Review request click token was not generated."
+        : "Failed to create review request.",
     };
   }
 
   const reviewLink = getTrackedReviewLink(
-    reviewRequest.click_token ?? null,
+    reviewRequest.click_token,
     business.google_review_link
   );
 
@@ -209,10 +228,21 @@ export async function sendReviewRequest(
   });
 
   if (messageBody !== initialMessageBody) {
-    await supabase
+    const { error: messageBodyUpdateError } = await supabase
       .from("review_requests")
       .update({ message_body: messageBody })
       .eq("id", reviewRequest.id);
+
+    if (messageBodyUpdateError) {
+      return {
+        success: false,
+        reviewRequestId: reviewRequest.id,
+        error: getDatabaseError(
+          "Failed to update review request link",
+          messageBodyUpdateError.message
+        ),
+      };
+    }
   }
 
   // Send via appropriate channel
@@ -226,13 +256,24 @@ export async function sendReviewRequest(
     });
 
     const newStatus = smsResult.success ? "sent" : "failed";
-    await supabase
+    const { error: statusUpdateError } = await supabase
       .from("review_requests")
       .update({
         status: newStatus,
         sent_at: smsResult.success ? new Date().toISOString() : null,
       })
       .eq("id", reviewRequest.id);
+
+    if (statusUpdateError) {
+      return {
+        success: false,
+        reviewRequestId: reviewRequest.id,
+        error: getDatabaseError(
+          "Failed to update review request status",
+          statusUpdateError.message
+        ),
+      };
+    }
 
     return {
       success: smsResult.success,
@@ -251,13 +292,24 @@ export async function sendReviewRequest(
     });
 
     const newStatus = emailResult.success ? "sent" : "failed";
-    await supabase
+    const { error: statusUpdateError } = await supabase
       .from("review_requests")
       .update({
         status: newStatus,
         sent_at: emailResult.success ? new Date().toISOString() : null,
       })
       .eq("id", reviewRequest.id);
+
+    if (statusUpdateError) {
+      return {
+        success: false,
+        reviewRequestId: reviewRequest.id,
+        error: getDatabaseError(
+          "Failed to update review request status",
+          statusUpdateError.message
+        ),
+      };
+    }
 
     return {
       success: emailResult.success,
@@ -267,10 +319,21 @@ export async function sendReviewRequest(
   }
 
   // No valid contact for the chosen channel
-  await supabase
+  const { error: failedStatusError } = await supabase
     .from("review_requests")
     .update({ status: "failed" })
     .eq("id", reviewRequest.id);
+
+  if (failedStatusError) {
+    return {
+      success: false,
+      reviewRequestId: reviewRequest.id,
+      error: getDatabaseError(
+        "Failed to update review request status",
+        failedStatusError.message
+      ),
+    };
+  }
 
   return {
     success: false,

@@ -80,17 +80,18 @@ export default async function ReviewsPage() {
 
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
 
-  if (!user) redirect("/login");
+  if (authError || !user) redirect("/login");
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("users")
     .select("business_id")
     .eq("id", user.id)
     .single();
 
-  if (!profile) redirect("/login");
+  if (profileError || !profile) redirect("/login");
 
   const [
     { data: business, error: businessError },

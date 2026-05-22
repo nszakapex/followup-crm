@@ -33,6 +33,12 @@ function hasTwilioConfig(): boolean {
   );
 }
 
+function getMessageLogError(errorMessage: string) {
+  return process.env.NODE_ENV !== "production"
+    ? `Failed to log SMS message: ${errorMessage}`
+    : "Failed to log message.";
+}
+
 /**
  * Send an SMS message. Falls back to mock if Twilio is not configured.
  *
@@ -45,7 +51,7 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
 
   // Block if opted out
   if (optedOut) {
-    await supabase.from("messages").insert({
+    const { error: messageInsertError } = await supabase.from("messages").insert({
       business_id: businessId,
       lead_id: leadId,
       channel: "sms",
@@ -55,6 +61,15 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
       provider: "blocked",
       error_message: "Lead has opted out of SMS",
     });
+
+    if (messageInsertError) {
+      return {
+        success: false,
+        provider: "blocked",
+        providerMessageId: null,
+        error: getMessageLogError(messageInsertError.message),
+      };
+    }
 
     return {
       success: false,
@@ -100,7 +115,7 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
       const result = await response.json();
 
       if (!response.ok) {
-        await supabase.from("messages").insert({
+        const { error: messageInsertError } = await supabase.from("messages").insert({
           business_id: businessId,
           lead_id: leadId,
           channel: "sms",
@@ -112,6 +127,15 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
           sent_at: new Date().toISOString(),
         });
 
+        if (messageInsertError) {
+          return {
+            success: false,
+            provider: "twilio",
+            providerMessageId: null,
+            error: getMessageLogError(messageInsertError.message),
+          };
+        }
+
         return {
           success: false,
           provider: "twilio",
@@ -120,7 +144,7 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
         };
       }
 
-      await supabase.from("messages").insert({
+      const { error: messageInsertError } = await supabase.from("messages").insert({
         business_id: businessId,
         lead_id: leadId,
         channel: "sms",
@@ -132,6 +156,15 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
         sent_at: new Date().toISOString(),
       });
 
+      if (messageInsertError) {
+        return {
+          success: false,
+          provider: "twilio",
+          providerMessageId: result.sid,
+          error: getMessageLogError(messageInsertError.message),
+        };
+      }
+
       return {
         success: true,
         provider: "twilio",
@@ -140,7 +173,7 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Unknown Twilio error";
 
-      await supabase.from("messages").insert({
+      const { error: messageInsertError } = await supabase.from("messages").insert({
         business_id: businessId,
         lead_id: leadId,
         channel: "sms",
@@ -150,6 +183,15 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
         provider: "twilio",
         error_message: errorMsg,
       });
+
+      if (messageInsertError) {
+        return {
+          success: false,
+          provider: "twilio",
+          providerMessageId: null,
+          error: getMessageLogError(messageInsertError.message),
+        };
+      }
 
       return {
         success: false,
@@ -163,7 +205,7 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
   // Mock fallback — no real SMS sent
   const mockId = `mock_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
-  await supabase.from("messages").insert({
+  const { error: messageInsertError } = await supabase.from("messages").insert({
     business_id: businessId,
     lead_id: leadId,
     channel: "sms",
@@ -174,6 +216,15 @@ export async function sendSms(params: SendSmsParams): Promise<SendSmsResult> {
     provider_message_id: mockId,
     sent_at: new Date().toISOString(),
   });
+
+  if (messageInsertError) {
+    return {
+      success: false,
+      provider: "mock_twilio",
+      providerMessageId: null,
+      error: getMessageLogError(messageInsertError.message),
+    };
+  }
 
   return {
     success: true,

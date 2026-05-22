@@ -19,10 +19,14 @@ function logReviewRequestDebug(
   console.info(`[reviews:send] ${message}`, payload);
 }
 
-function getBusinessNotFoundError(businessId: string) {
+function getBusinessLookupError(businessId: string, message: string) {
   return isDevelopment()
-    ? `Business not found for businessId: ${businessId}`
+    ? `Business not found for businessId: ${businessId}. Supabase error: ${message}`
     : "Business not found.";
+}
+
+function getDatabaseError(action: string, message: string) {
+  return isDevelopment() ? `${action}: ${message}` : action;
 }
 
 function isManualReviewChannel(value: FormDataEntryValue | null): value is ManualReviewChannel {
@@ -34,9 +38,10 @@ export async function sendManualReviewRequest(formData: FormData) {
 
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  if (authError || !user) {
     return { success: false as const, error: "Not authenticated." };
   }
 
@@ -84,9 +89,12 @@ export async function sendManualReviewRequest(formData: FormData) {
   });
 
   if (businessError || !business) {
+    const lookupMessage =
+      businessError?.message ?? "No matching business row returned.";
+
     return {
       success: false as const,
-      error: getBusinessNotFoundError(resolvedBusinessId),
+      error: getBusinessLookupError(resolvedBusinessId, lookupMessage),
     };
   }
 
@@ -107,7 +115,9 @@ export async function sendManualReviewRequest(formData: FormData) {
   if (leadError || !lead) {
     return {
       success: false as const,
-      error: leadError?.message ?? "Customer not found.",
+      error: leadError
+        ? getDatabaseError("Customer lookup failed", leadError.message)
+        : "Customer not found.",
     };
   }
 

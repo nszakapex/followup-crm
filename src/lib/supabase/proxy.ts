@@ -31,17 +31,20 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
+    error: authError,
   } = await supabase.auth.getUser();
 
   // Redirect unauthenticated users away from protected routes
+  const pathname = request.nextUrl.pathname;
   const isAuthRoute =
-    request.nextUrl.pathname.startsWith("/login") ||
-    request.nextUrl.pathname.startsWith("/signup") ||
-    request.nextUrl.pathname.startsWith("/callback");
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/signup") ||
+    pathname.startsWith("/callback");
+  const isReviewRedirectRoute = pathname.startsWith("/r/");
   const isPublicRoute =
-    request.nextUrl.pathname === "/" || isAuthRoute;
+    pathname === "/" || isAuthRoute || isReviewRedirectRoute;
 
-  if (!user && !isPublicRoute) {
+  if ((!user || authError) && !isPublicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
