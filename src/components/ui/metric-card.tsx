@@ -34,10 +34,10 @@ export function MetricCard({
       <CardContent className="space-y-5 p-5">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-xs font-medium uppercase text-muted-foreground">
+            <p className="text-[0.68rem] font-medium uppercase tracking-[0.14em] text-muted-foreground">
               {label}
             </p>
-            <div className="mt-3 text-4xl font-semibold text-foreground">
+            <div className="mt-3 font-heading text-4xl font-semibold leading-none tracking-tight text-foreground tabular-nums">
               {value}
             </div>
           </div>
@@ -48,7 +48,7 @@ export function MetricCard({
           )}
         </div>
         {(context || trend) && (
-          <div className="flex min-h-5 items-center justify-between gap-3 text-xs text-muted-foreground">
+          <div className="flex min-h-5 items-center justify-between gap-3 text-[0.8rem] leading-5 text-muted-foreground">
             {context && <p className="truncate">{context}</p>}
             {trend && <div className="shrink-0">{trend}</div>}
           </div>

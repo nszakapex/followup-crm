@@ -111,14 +111,18 @@ export function DashboardChart({
           />
         ))}
 
-        <text x={paddingX} y={height - 14} className="fill-muted-foreground text-[11px]">
+        <text
+          x={paddingX}
+          y={height - 14}
+          className="fill-muted-foreground text-[10px] tracking-[0.08em]"
+        >
           {first.label}
         </text>
         <text
           x={width / 2}
           y={height - 14}
           textAnchor="middle"
-          className="fill-muted-foreground text-[11px]"
+          className="fill-muted-foreground text-[10px] tracking-[0.08em]"
         >
           {middle.label}
         </text>
@@ -126,7 +130,7 @@ export function DashboardChart({
           x={width - paddingX}
           y={height - 14}
           textAnchor="end"
-          className="fill-muted-foreground text-[11px]"
+          className="fill-muted-foreground text-[10px] tracking-[0.08em]"
         >
           {last.label}
         </text>

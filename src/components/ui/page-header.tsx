@@ -24,16 +24,16 @@ export function PageHeader({
     >
       <div className="min-w-0 space-y-2">
         {eyebrow && (
-          <p className="text-xs font-medium uppercase text-muted-foreground">
+          <p className="text-[0.68rem] font-medium uppercase tracking-[0.18em] text-muted-foreground">
             {eyebrow}
           </p>
         )}
         <div>
-          <h1 className="text-3xl font-semibold text-foreground sm:text-4xl">
+          <h1 className="font-heading text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl">
             {title}
           </h1>
           {description && (
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:leading-7">
               {description}
             </p>
           )}

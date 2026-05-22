@@ -40,8 +40,10 @@ export function Sidebar() {
               <Zap className="h-4 w-4 text-primary-foreground" />
             </div>
             <div>
-              <span className="block text-base font-semibold">FollowUp</span>
-              <span className="block text-[0.68rem] font-medium uppercase text-muted-foreground">
+              <span className="block font-heading text-base font-semibold tracking-tight">
+                FollowUp
+              </span>
+              <span className="block text-[0.64rem] font-medium uppercase tracking-[0.18em] text-muted-foreground">
                 CRM
               </span>
             </div>
@@ -57,7 +59,7 @@ export function Sidebar() {
                   <Link
                     href={item.href}
                     className={cn(
-                      "group flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
+                      "group flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm font-medium tracking-[-0.01em] transition-all",
                       isActive
                         ? "bg-foreground text-background shadow-sm"
                         : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
@@ -81,7 +83,7 @@ export function Sidebar() {
                     key={item.name}
                     href={item.href}
                     className={cn(
-                      "group flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
+                      "group flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm font-medium tracking-[-0.01em] transition-all",
                       isActive
                         ? "bg-foreground text-background shadow-sm"
                         : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"

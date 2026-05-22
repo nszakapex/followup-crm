@@ -34,8 +34,12 @@ export function Header() {
 
       {business && (
         <div className="hidden min-w-0 sm:block">
-          <p className="truncate text-sm font-medium text-foreground">{business.name}</p>
-          <p className="text-xs text-muted-foreground">Lead follow-up workspace</p>
+          <p className="truncate font-heading text-sm font-semibold tracking-tight text-foreground">
+            {business.name}
+          </p>
+          <p className="text-[0.72rem] leading-5 tracking-[0.01em] text-muted-foreground">
+            Lead follow-up workspace
+          </p>
         </div>
       )}
 
@@ -53,8 +57,8 @@ export function Header() {
           <DropdownMenuContent align="end" className="w-48">
             {user && (
               <div className="px-1.5 py-1.5 text-sm">
-                <p className="font-medium">{user.name}</p>
-                <p className="text-xs text-muted-foreground">{user.email}</p>
+                <p className="font-medium tracking-tight">{user.name}</p>
+                <p className="text-xs leading-5 text-muted-foreground">{user.email}</p>
               </div>
             )}
             <DropdownMenuSeparator />
