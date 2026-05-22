@@ -9,6 +9,7 @@ import {
   Star,
 } from "lucide-react";
 
+import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
 import { SendReviewRequestDialog } from "@/components/reviews/send-review-request-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -159,6 +160,8 @@ export default async function ReviewsPage() {
               leads={leads}
               hasGoogleReviewLink={hasGoogleReviewLink}
             />
+          ) : hasGoogleReviewLink ? (
+            <AddLeadDialog />
           ) : (
             <Button variant="outline" render={<Link href="/settings" />}>
               <ExternalLink className="h-4 w-4 mr-2" />
@@ -246,14 +249,28 @@ export default async function ReviewsPage() {
           {reviewRequests.length === 0 ? (
             <EmptyState
               icon={Star}
-              title="No review requests sent yet"
-              description="When you send review requests, delivery and click activity will appear here."
+              title={
+                hasGoogleReviewLink
+                  ? leads.length > 0
+                    ? "Send the first review request"
+                    : "Add a customer before sending"
+                  : "Configure the review link"
+              }
+              description={
+                hasGoogleReviewLink
+                  ? leads.length > 0
+                    ? "Choose a real customer and send a simple request to leave an honest Google review."
+                    : "Review requests attach to a lead or customer record, keeping activity easy to trace."
+                  : "Customers need a real Google review destination before tracked requests can be sent."
+              }
               action={
                 hasGoogleReviewLink && leads.length > 0 ? (
                   <SendReviewRequestDialog
                     leads={leads}
                     hasGoogleReviewLink={hasGoogleReviewLink}
                   />
+                ) : hasGoogleReviewLink ? (
+                  <AddLeadDialog />
                 ) : (
                   <Button variant="outline" render={<Link href="/settings" />}>
                     Configure review link

@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { ReadinessPanel, type ReadinessItem } from "@/components/ui/readiness-panel";
 import { createClient } from "@/lib/supabase/server";
-import type { BrandVoice, Business } from "@/types/database";
+import type { Automation, BrandVoice, Business, Lead, ReviewRequest } from "@/types/database";
 
 function isDevelopment() {
   return process.env.NODE_ENV !== "production";
@@ -65,6 +66,112 @@ export default async function SettingsPage() {
   }
 
   const biz = business as Business;
+  const [
+    { data: leadsData, error: leadsError },
+    { data: reviewRequestsData, error: reviewRequestsError },
+    { data: automationsData, error: automationsError },
+  ] = await Promise.all([
+    supabase.from("leads").select("id").eq("business_id", profile.business_id),
+    supabase.from("review_requests").select("id").eq("business_id", profile.business_id),
+    supabase
+      .from("automations")
+      .select("id, enabled")
+      .eq("business_id", profile.business_id),
+  ]);
+  const leads = (leadsData ?? []) as Pick<Lead, "id">[];
+  const reviewRequests = (reviewRequestsData ?? []) as Pick<ReviewRequest, "id">[];
+  const automations = (automationsData ?? []) as Pick<Automation, "id" | "enabled">[];
+  const activeAutomations = automations.filter((automation) => automation.enabled).length;
+  const settingsStatusError =
+    leadsError?.message ?? reviewRequestsError?.message ?? automationsError?.message ?? null;
+  const smsProviderConfigured = Boolean(
+    process.env.TWILIO_ACCOUNT_SID &&
+      process.env.TWILIO_AUTH_TOKEN &&
+      (process.env.TWILIO_PHONE_NUMBER ||
+        process.env.TWILIO_MESSAGING_SERVICE_SID ||
+        biz.twilio_from_number)
+  );
+  const emailProviderConfigured = Boolean(
+    process.env.RESEND_API_KEY &&
+      (process.env.RESEND_FROM_EMAIL || biz.resend_from_email)
+  );
+  const providerLabels = [
+    smsProviderConfigured ? "SMS" : null,
+    emailProviderConfigured ? "Email" : null,
+  ].filter(Boolean);
+  const businessIdentityReady = Boolean(biz.name && biz.owner_email);
+  const reviewLinkReady = Boolean(biz.google_review_link);
+  const reviewRequestsReady = Boolean(biz.review_requests_enabled && reviewLinkReady);
+  const settingsReadinessItems: ReadinessItem[] = [
+    {
+      title: "Business identity",
+      description: businessIdentityReady
+        ? "Name and owner email are available for the workspace."
+        : "Add the business name and owner email used across the portal.",
+      status: businessIdentityReady ? "complete" : "needs_setup",
+    },
+    {
+      title: "Google review link",
+      description: reviewLinkReady
+        ? "Tracked review requests have a configured destination."
+        : "Add the Google review destination before sending requests.",
+      status: reviewLinkReady ? "complete" : "needs_setup",
+    },
+    {
+      title: "Review request readiness",
+      description: reviewRequestsReady
+        ? "The business is ready to send simple, honest review requests."
+        : biz.review_requests_enabled
+          ? "A review link is required before customers can be sent through."
+          : "Review requests are paused for this business.",
+      status: reviewRequestsReady ? "complete" : "needs_setup",
+    },
+    {
+      title: "Lead/customer record",
+      description:
+        leads.length > 0
+          ? `${leads.length} lead${leads.length === 1 ? "" : "s"} available for actions.`
+          : "Add a real lead or customer before sending the first request.",
+      status: leads.length > 0 ? "complete" : "needs_setup",
+      href: "/leads",
+      cta: leads.length > 0 ? "Open" : "Add lead",
+    },
+    {
+      title: "Automation setup",
+      description:
+        automations.length === 0
+          ? "Default automations have not been initialized yet."
+          : activeAutomations > 0 && biz.lead_followup_enabled
+            ? `${activeAutomations} automation${activeAutomations === 1 ? "" : "s"} active.`
+            : "Turn on at least one follow-up automation when ready.",
+      status:
+        automations.length === 0
+          ? "not_configured"
+          : activeAutomations > 0 && biz.lead_followup_enabled
+            ? "complete"
+            : "needs_setup",
+      href: "/automations",
+      cta: "Open",
+    },
+    {
+      title: "Messaging provider",
+      description:
+        providerLabels.length > 0
+          ? `${providerLabels.join(" and ")} configured for live delivery.`
+          : "Mock delivery is available for local testing; live SMS/email setup is optional for now.",
+      status: providerLabels.length > 0 ? "complete" : "optional",
+    },
+    {
+      title: "Review activity",
+      description:
+        reviewRequests.length > 0
+          ? `${reviewRequests.length} review request${reviewRequests.length === 1 ? "" : "s"} recorded.`
+          : "Activity will appear after the first review request is sent.",
+      status: reviewRequests.length > 0 ? "complete" : "optional",
+      href: "/reviews",
+      cta: "Open",
+    },
+  ];
 
   return (
     <div className="space-y-8">
@@ -73,6 +180,14 @@ export default async function SettingsPage() {
         title="Settings"
         description="Keep the business profile, review destination, and communication tone precise."
       />
+
+      {settingsStatusError && (
+        <Card className="border-destructive/30 bg-destructive/5">
+          <CardContent className="py-4 text-sm text-destructive">
+            {formatError(settingsStatusError)}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[0.78fr_1.22fr]">
         <div className="space-y-4">
@@ -95,6 +210,12 @@ export default async function SettingsPage() {
               </div>
             </CardContent>
           </Card>
+
+          <ReadinessPanel
+            title="Review readiness"
+            description="A compact check of what is ready and what still needs attention."
+            items={settingsReadinessItems}
+          />
 
           <Card>
             <CardHeader>

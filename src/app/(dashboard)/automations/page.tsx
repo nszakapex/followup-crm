@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   AlertCircle,
@@ -12,6 +13,7 @@ import {
 import { AutomationToggle } from "@/components/automations/automation-toggle";
 import { ChannelSelector } from "@/components/automations/channel-selector";
 import { EditTemplateDialog } from "@/components/automations/edit-template-dialog";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
@@ -147,6 +149,11 @@ export default async function AutomationsPage() {
             icon={Zap}
             title="No automations yet"
             description="Default automations are created automatically when this page loads. If this stays empty, check the database error above."
+            action={
+              <Button variant="outline" render={<Link href="/settings" />}>
+                Review setup
+              </Button>
+            }
           />
         </Card>
       ) : (

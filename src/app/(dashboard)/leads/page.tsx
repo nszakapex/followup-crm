@@ -147,8 +147,12 @@ export default async function LeadsPage(props: {
           {leads.length === 0 ? (
             <EmptyState
               icon={Users}
-              title="No leads in this view"
-              description="New leads will appear here as they come in from forms, webhooks, or manual entry."
+              title={allLeads.length === 0 ? "Add the first lead" : "No leads in this view"}
+              description={
+                allLeads.length === 0
+                  ? "Start with one real customer or prospect so follow-ups, messages, and review requests have a place to attach."
+                  : "Try another status view or clear the filter to see the full pipeline."
+              }
               action={<AddLeadDialog />}
             />
           ) : (

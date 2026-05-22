@@ -139,7 +139,12 @@ export default async function MessagesPage() {
             <EmptyState
               icon={MessageSquare}
               title="No messages yet"
-              description="Messages will appear here as follow-ups, review requests, and notes are created."
+              description="Messages will appear here as follow-ups, review requests, and notes are created. Start from a lead or send a review request when the business is ready."
+              action={
+                <Button variant="outline" render={<Link href="/reviews" />}>
+                  Open reviews
+                </Button>
+              }
             />
           ) : (
             <div className="divide-y divide-border/60">

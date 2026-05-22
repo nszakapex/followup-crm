@@ -21,6 +21,7 @@ import { DashboardChart, type DashboardChartPoint } from "@/components/dashboard
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
 import { PageHeader } from "@/components/ui/page-header";
+import { ReadinessPanel, type ReadinessItem } from "@/components/ui/readiness-panel";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { createClient } from "@/lib/supabase/server";
 import type { Automation, Lead, Message, ReviewRequest } from "@/types/database";
@@ -65,6 +66,8 @@ type NextAction = {
   title: string;
   description: string;
   href: string;
+  cta: string;
+  priority: "High" | "Recommended" | "Optional";
 };
 
 function isNextAction(action: NextAction | null): action is NextAction {
@@ -138,6 +141,12 @@ function sortByDateDesc<T extends { date: string }>(items: T[]) {
   return items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
+const priorityClasses: Record<NextAction["priority"], string> = {
+  High: "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  Recommended: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  Optional: "border-border/70 bg-muted/40 text-muted-foreground",
+};
+
 export default async function DashboardPage() {
   const supabase = await createClient();
 
@@ -171,7 +180,9 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     supabase
       .from("businesses")
-      .select("id, name, google_review_link")
+      .select(
+        "id, name, google_review_link, review_requests_enabled, lead_followup_enabled, twilio_from_number, resend_from_email"
+      )
       .eq("id", businessId)
       .single(),
     supabase
@@ -241,6 +252,25 @@ export default async function DashboardPage() {
     ["booked", "completed", "review_requested"].includes(lead.status)
   ).length;
   const conversionRate = percent(conversionCount, totalLeads);
+  const hasBusinessProfile = Boolean(business?.name);
+  const hasReviewLink = Boolean(business?.google_review_link);
+  const reviewRequestsEnabled = Boolean(business?.review_requests_enabled);
+  const leadFollowupEnabled = Boolean(business?.lead_followup_enabled);
+  const smsProviderConfigured = Boolean(
+    process.env.TWILIO_ACCOUNT_SID &&
+      process.env.TWILIO_AUTH_TOKEN &&
+      (process.env.TWILIO_PHONE_NUMBER ||
+        process.env.TWILIO_MESSAGING_SERVICE_SID ||
+        business?.twilio_from_number)
+  );
+  const emailProviderConfigured = Boolean(
+    process.env.RESEND_API_KEY &&
+      (process.env.RESEND_FROM_EMAIL || business?.resend_from_email)
+  );
+  const providerLabels = [
+    smsProviderConfigured ? "SMS" : null,
+    emailProviderConfigured ? "Email" : null,
+  ].filter(Boolean);
 
   const chartSource =
     leads.length > 0
@@ -286,12 +316,97 @@ export default async function DashboardPage() {
     ...messageActivities,
   ]).slice(0, 6);
 
+  const reviewFlowReady = Boolean(
+    reviewRequestsEnabled && hasReviewLink && totalLeads > 0
+  );
+  const readinessItems: ReadinessItem[] = [
+    {
+      title: "Business profile",
+      description: hasBusinessProfile
+        ? `${business?.name} is connected to this workspace.`
+        : "Complete the core business identity before sending customers anywhere.",
+      status: hasBusinessProfile ? "complete" : "needs_setup",
+      href: "/settings",
+      cta: "Review",
+    },
+    {
+      title: "Google review link",
+      description: hasReviewLink
+        ? "Customers have a configured destination for honest Google reviews."
+        : "Add the Google review destination used by tracked review requests.",
+      status: hasReviewLink ? "complete" : "needs_setup",
+      href: "/settings",
+      cta: "Configure",
+    },
+    {
+      title: "Lead record",
+      description:
+        totalLeads > 0
+          ? `${totalLeads} lead${totalLeads === 1 ? "" : "s"} available for follow-up.`
+          : "Add one real customer or prospect to start the operating loop.",
+      status: totalLeads > 0 ? "complete" : "needs_setup",
+      href: "/leads",
+      cta: totalLeads > 0 ? "Open" : "Add lead",
+    },
+    {
+      title: "Review request flow",
+      description: reviewFlowReady
+        ? "Ready to send simple review requests to real customers."
+        : !reviewRequestsEnabled
+          ? "Review requests are paused in business settings."
+          : hasReviewLink
+            ? "Add a lead before sending the first review request."
+            : "Configure the review link before sending requests.",
+      status: reviewFlowReady ? "complete" : "needs_setup",
+      href: reviewFlowReady || hasReviewLink ? "/reviews" : "/settings",
+      cta: reviewFlowReady ? "Send" : "Set up",
+    },
+    {
+      title: "Automations",
+      description:
+        automations.length === 0
+          ? "Default follow-up automations have not been created yet."
+          : activeAutomations > 0 && leadFollowupEnabled
+            ? `${activeAutomations} automation${activeAutomations === 1 ? "" : "s"} active.`
+            : "Turn on the first follow-up automation when you are ready.",
+      status:
+        automations.length === 0
+          ? "not_configured"
+          : activeAutomations > 0 && leadFollowupEnabled
+            ? "complete"
+            : "needs_setup",
+      href: "/automations",
+      cta: "Open",
+    },
+    {
+      title: "Messaging providers",
+      description:
+        providerLabels.length > 0
+          ? `${providerLabels.join(" and ")} configured for live delivery.`
+          : "Local smoke tests can use mock SMS and email delivery until live providers are connected.",
+      status: providerLabels.length > 0 ? "complete" : "optional",
+      href: "/settings",
+      cta: "Review",
+    },
+  ];
+
   const nextActions = [
-    !business?.google_review_link
+    !hasBusinessProfile
+      ? {
+          title: "Complete the business profile",
+          description: "Name and owner details keep the workspace clear for every follow-up.",
+          href: "/settings",
+          cta: "Open settings",
+          priority: "High" as const,
+        }
+      : null,
+    !hasReviewLink
       ? {
           title: "Add your Google review link",
           description: "Review requests need a destination before customers can click through.",
           href: "/settings",
+          cta: "Configure link",
+          priority: "High" as const,
         }
       : null,
     needsReply > 0
@@ -299,6 +414,8 @@ export default async function DashboardPage() {
           title: `Reply to ${needsReply} lead${needsReply === 1 ? "" : "s"}`,
           description: "These leads are waiting for a response.",
           href: "/leads?status=needs_reply",
+          cta: "Open leads",
+          priority: "High" as const,
         }
       : null,
     activeAutomations === 0 && automations.length > 0
@@ -306,6 +423,17 @@ export default async function DashboardPage() {
           title: "Turn on your first automation",
           description: "Start with instant replies so new leads are acknowledged right away.",
           href: "/automations",
+          cta: "Enable",
+          priority: "Recommended" as const,
+        }
+      : null,
+    automations.length === 0
+      ? {
+          title: "Create default automations",
+          description: "Open Automations to initialize the standard follow-up systems.",
+          href: "/automations",
+          cta: "Open automations",
+          priority: "Recommended" as const,
         }
       : null,
     totalLeads === 0
@@ -313,13 +441,26 @@ export default async function DashboardPage() {
           title: "Add your first lead",
           description: "Create one customer record to unlock follow-up and review tracking.",
           href: "/leads",
+          cta: "Add lead",
+          priority: "High" as const,
         }
       : null,
-    totalLeads > 0 && reviewRequestsSent === 0
+    reviewFlowReady && reviewRequestsSent === 0
       ? {
           title: "Send a review request",
           description: "Ask a real customer for an honest Google review.",
           href: "/reviews",
+          cta: "Send request",
+          priority: "Recommended" as const,
+        }
+      : null,
+    messages.length > 0
+      ? {
+          title: "Review recent messages",
+          description: "Check outbound and inbound activity attached to your leads.",
+          href: "/messages",
+          cta: "Open messages",
+          priority: "Optional" as const,
         }
       : null,
   ].filter(isNextAction);
@@ -374,6 +515,12 @@ export default async function DashboardPage() {
         </CardContent>
       </Card>
 
+      <ReadinessPanel
+        title="Business readiness"
+        description="A practical setup check for leads, reviews, follow-up, and delivery."
+        items={readinessItems}
+      />
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <MetricCard
           label="Total leads"
@@ -425,8 +572,8 @@ export default async function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Priority next actions</CardTitle>
-            <CardDescription>The shortest path to more follow-up clarity.</CardDescription>
+            <CardTitle>Next best actions</CardTitle>
+            <CardDescription>Only the steps that match the current workspace state.</CardDescription>
           </CardHeader>
           <CardContent>
             {nextActions.length === 0 ? (
@@ -443,9 +590,20 @@ export default async function DashboardPage() {
                     <div className="rounded-lg border border-border/70 p-4 transition-colors hover:bg-muted/40">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-sm font-medium">{action.title}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-medium">{action.title}</p>
+                            <Badge
+                              variant="outline"
+                              className={priorityClasses[action.priority]}
+                            >
+                              {action.priority}
+                            </Badge>
+                          </div>
                           <p className="mt-1 text-sm leading-5 text-muted-foreground">
                             {action.description}
+                          </p>
+                          <p className="mt-3 text-xs font-medium text-foreground">
+                            {action.cta}
                           </p>
                         </div>
                         <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -485,7 +643,7 @@ export default async function DashboardPage() {
                       {automation.trigger_count > 0
                         ? `${automation.trigger_count} trigger${automation.trigger_count === 1 ? "" : "s"}`
                         : "No triggers yet"}
-                      {" · "}
+                      {" - "}
                       Last {formatRelative(automation.last_triggered_at)}
                     </p>
                   </div>
