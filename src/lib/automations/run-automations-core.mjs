@@ -18,6 +18,10 @@ function getDatabaseError(action, message) {
   return isDevelopment() ? `${action}: ${message}` : action;
 }
 
+function isUniqueViolation(error) {
+  return error && error.code === "23505";
+}
+
 function createServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -181,11 +185,11 @@ function getActionKey(automation, lead) {
 
 async function hasDuplicateAction(supabase, businessId, actionKey) {
   const { data, error } = await supabase
-    .from("audit_logs")
+    .from("automation_actions")
     .select("id")
     .eq("business_id", businessId)
-    .eq("action", "automation.action_created")
-    .contains("metadata_json", { action_key: actionKey })
+    .eq("dedupe_key", actionKey)
+    .eq("status", "pending_review")
     .limit(1);
 
   if (error) return { duplicate: false, error };
@@ -206,40 +210,105 @@ async function logAutomationEvent(supabase, params) {
   return error;
 }
 
-async function createMessageAction(supabase, business, automation, lead, body) {
-  const { data, error } = await supabase
-    .from("messages")
-    .insert({
-      business_id: business.id,
-      lead_id: lead.id,
-      channel: automation.channel,
-      direction: "outbound",
-      body,
-      status: "pending",
-      provider: "automation_test",
-      provider_message_id: null,
-      error_message: "Automation action created without provider delivery.",
-      sent_at: null,
-    })
-    .select("id")
-    .single();
-
-  return { id: data && data.id, error };
+function getLeadName(lead) {
+  return `${lead.first_name || "Customer"} ${lead.last_name || ""}`.trim();
 }
 
-async function createReviewRequestAction(supabase, business, automation, lead, body) {
-  const customerName = `${lead.first_name} ${lead.last_name || ""}`.trim();
+function getActionType(match) {
+  return match.action === "create_review_request"
+    ? "review_request"
+    : "follow_up_message";
+}
+
+function getActionTitle(automation, lead, match) {
+  const leadName = getLeadName(lead);
+  return match.action === "create_review_request"
+    ? `Review request for ${leadName}`
+    : `${automation.name} for ${leadName}`;
+}
+
+function getActionSummary(automation, lead, match) {
+  const contact = automation.channel === "sms" ? lead.phone : lead.email;
+  const channel = automation.channel === "sms" ? "SMS" : "email";
+
+  if (match.action === "create_review_request") {
+    return `${getLeadName(lead)} is marked completed and can be reviewed before any review request is sent.`;
+  }
+
+  return `${getLeadName(lead)} matched ${automation.name}. Suggested ${channel} follow-up is ready for review${contact ? "" : ", but contact details should be checked"}.`;
+}
+
+function getActionReason(automation, lead, match) {
+  if (match.action === "create_review_request") {
+    return "Lead is completed and eligible for an honest Google review request.";
+  }
+
+  if (automation.type === "missed_call_textback") {
+    return "Lead appears to be a missed-call new lead.";
+  }
+
+  if (automation.trigger_status) {
+    return `Lead status matched ${automation.trigger_status}.`;
+  }
+
+  return "Lead matched the automation eligibility rules.";
+}
+
+function buildActionMetadata(automation, lead, match, business, now) {
+  const createdAt = new Date(lead.created_at);
+  const daysSinceCreated = Math.max(
+    0,
+    Math.floor((now.getTime() - createdAt.getTime()) / 86400000)
+  );
+
+  return {
+    runMode: "confirmed",
+    candidateId: lead.id,
+    candidateType: "lead",
+    automationId: automation.id,
+    automationType: automation.type,
+    automationName: automation.name,
+    automationChannel: automation.channel,
+    eligibilityAction: match.action,
+    eligibilityReason: getActionReason(automation, lead, match),
+    leadStatus: lead.status,
+    leadSource: lead.source || null,
+    daysSinceCreated,
+    lastContactedAt: lead.last_contacted_at || null,
+    reviewLinkConfigured: Boolean(business.google_review_link),
+    providerDelivery: "not_called",
+  };
+}
+
+async function createPendingAutomationAction(
+  supabase,
+  business,
+  automation,
+  lead,
+  body,
+  match,
+  actionKey,
+  now
+) {
   const { data, error } = await supabase
-    .from("review_requests")
+    .from("automation_actions")
     .insert({
       business_id: business.id,
       lead_id: lead.id,
-      customer_name: customerName || "Customer",
-      phone: lead.phone || null,
-      email: lead.email || null,
+      review_request_id: null,
+      action_type: getActionType(match),
+      status: "pending_review",
       channel: automation.channel,
-      message_body: body,
-      status: "pending",
+      title: getActionTitle(automation, lead, match),
+      summary: getActionSummary(automation, lead, match),
+      suggested_message: body,
+      reason: getActionReason(automation, lead, match),
+      reason_code: automation.type,
+      source: "automation_run",
+      run_id: null,
+      audit_log_id: null,
+      dedupe_key: actionKey,
+      metadata_json: buildActionMetadata(automation, lead, match, business, now),
     })
     .select("id")
     .single();
@@ -479,11 +548,33 @@ export async function runAutomationsCore(options) {
       }
 
       const actionResult =
-        match.action === "create_review_request"
-          ? await createReviewRequestAction(supabase, business, automation, lead, body)
-          : await createMessageAction(supabase, business, automation, lead, body);
+        await createPendingAutomationAction(
+          supabase,
+          business,
+          automation,
+          lead,
+          body,
+          match,
+          actionKey,
+          now
+        );
 
       if (actionResult.error || !actionResult.id) {
+        if (isUniqueViolation(actionResult.error)) {
+          skipped += 1;
+          duplicatesPrevented += 1;
+          results.push(
+            makeResult(
+              automation,
+              lead,
+              "skipped",
+              "Duplicate automation action skipped.",
+              true
+            )
+          );
+          continue;
+        }
+
         failures += 1;
         const reason = getDatabaseError(
           "Automation action failed",
@@ -515,8 +606,7 @@ export async function runAutomationsCore(options) {
           automation_type: automation.type,
           action_key: actionKey,
           created_entity_id: actionResult.id,
-          created_entity_type:
-            match.action === "create_review_request" ? "review_request" : "message",
+          created_entity_type: "automation_action",
           provider_delivery: "not_called",
         },
       });
@@ -540,10 +630,8 @@ export async function runAutomationsCore(options) {
         makeResult(
           automation,
           lead,
-          match.action === "create_review_request"
-            ? "created_review_request"
-            : "created_message",
-          "Automation action created without provider delivery."
+          "created_pending_action",
+          "Pending automation action created for review. No provider delivery occurred."
         )
       );
     }

@@ -39,14 +39,14 @@ Optional flags:
 
 ## Current Automation Behavior
 
-Lead message automations evaluate eligible leads and can create pending outbound message records in confirmed mode:
+Lead message automations evaluate eligible leads and can create pending automation action records in confirmed mode:
 
 - `instant_lead_reply`
 - `twenty_four_hour_followup`
 - `three_day_followup`
 - `missed_call_textback`
 
-Review request automation evaluates completed leads and can create a pending review request record:
+Review request automation evaluates completed leads and can create a pending review request action:
 
 - `review_request`
 
@@ -124,7 +124,7 @@ curl -X POST "https://your-app.example.com/api/automations/run" \
   }'
 ```
 
-Confirmed execution still does not call Twilio or Resend. It creates only the same internal/test records that the manual runner creates.
+Confirmed execution still does not call Twilio or Resend. It creates pending automation actions for review.
 
 Provider sends are disabled from the API route. Requests with `allowProviderSends: true` are rejected with:
 
@@ -334,3 +334,165 @@ Current limitations remain intentional:
 - No live Twilio or Resend delivery.
 - No browser-visible run trigger.
 - Provider sends are rejected even if `allowProviderSends` is requested.
+
+## Phase 6D Pending Action Review Queue
+
+Phase 6D adds a business-scoped `automation_actions` review queue.
+
+Dry-runs still only evaluate candidates:
+
+- no `automation_actions` rows are created
+- no messages are created
+- no review requests are created
+- no SMS or email is sent
+- `actionsCreated` stays `0`
+
+Confirmed runs require:
+
+```json
+{
+  "businessId": "BUSINESS_ID",
+  "dryRun": false,
+  "confirmRun": true
+}
+```
+
+Confirmed runs create `pending_review` automation actions when eligible candidates exist. These are operator-review records only. They do not send SMS, email, or review requests.
+
+Each pending action includes:
+
+- business scope
+- linked lead when available
+- action type
+- suggested channel
+- title and summary
+- reason and reason code
+- suggested message preview
+- dedupe key
+- safe metadata about the automation and candidate
+
+Do not store secrets, auth headers, provider credentials, or raw customer payloads in action metadata.
+
+### Duplicate Prevention
+
+The runner creates a stable dedupe key:
+
+```text
+automation:<automationType>:lead:<leadId>
+```
+
+`automation_actions` has a partial unique index for active pending actions:
+
+```text
+business_id + dedupe_key where status = 'pending_review'
+```
+
+Running the same confirmed automation twice should skip duplicate active pending actions and increase `duplicatesPrevented`.
+
+Reviewed or dismissed actions are no longer active pending actions, so a future confirmed run may create a fresh reviewable action for the same lead/automation if that is still eligible.
+
+### Automations Page
+
+Open:
+
+```text
+http://localhost:3000/automations
+```
+
+The page shows:
+
+- automation run status
+- recent run history
+- pending automation actions
+- recently reviewed/dismissed actions
+
+Pending actions can be:
+
+- marked reviewed
+- dismissed
+
+Neither action sends anything to a customer.
+
+### Phase 6D Smoke Tests
+
+Dry-run does not create actions:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"businessId":"BUSINESS_ID","dryRun":true}'
+```
+
+Expected:
+
+- `200`
+- `actionsCreated: 0`
+- pending action count unchanged
+
+Confirmed run creates pending actions:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"businessId":"BUSINESS_ID","dryRun":false,"confirmRun":true}'
+```
+
+Expected:
+
+- `200`
+- `actionsCreated >= 0`
+- pending actions appear on `/automations` when eligible candidates exist
+- no provider sends
+
+Repeat confirmed run:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"businessId":"BUSINESS_ID","dryRun":false,"confirmRun":true}'
+```
+
+Expected:
+
+- duplicate active pending actions are skipped
+- `duplicatesPrevented` increases when the same candidates are still pending
+- no duplicate pending action cards
+
+Provider sends remain blocked:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"businessId":"BUSINESS_ID","dryRun":true,"allowProviderSends":true}'
+```
+
+Expected:
+
+- `400`
+- no provider send occurs
+
+Review actions:
+
+- click `Mark reviewed` on a pending action
+- expected: the action leaves the pending queue or changes status, and no provider send occurs
+
+Dismiss actions:
+
+- click `Dismiss` on a pending action
+- expected: the action leaves the pending queue, and no provider send occurs

@@ -3,6 +3,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import type { MessageChannel } from "@/types/database";
+import {
+  dismissAutomationAction as dismissAutomationActionRecord,
+  markAutomationActionReviewed as markAutomationActionRecordReviewed,
+} from "@/lib/automations/action-queue";
 
 type AuthContext =
   | { ok: true; supabase: Awaited<ReturnType<typeof createClient>>; businessId: string }
@@ -210,4 +214,60 @@ export async function updateAutomationChannel(
 
   revalidatePath("/automations");
   return { success: true };
+}
+
+export async function markAutomationActionReviewed(actionId: string): Promise<void> {
+  const ctx = await getAuthContext();
+  if (!ctx.ok) {
+    console.error("[automationActions.reviewed] Auth failed", {
+      actionId,
+      error: ctx.reason,
+    });
+    return;
+  }
+
+  const result = await markAutomationActionRecordReviewed(
+    ctx.supabase,
+    ctx.businessId,
+    actionId
+  );
+
+  if (!result.success) {
+    console.error("[automationActions.reviewed] Failed", {
+      actionId,
+      businessId: ctx.businessId,
+      error: result.error,
+    });
+    return;
+  }
+
+  revalidatePath("/automations");
+}
+
+export async function dismissAutomationAction(actionId: string): Promise<void> {
+  const ctx = await getAuthContext();
+  if (!ctx.ok) {
+    console.error("[automationActions.dismissed] Auth failed", {
+      actionId,
+      error: ctx.reason,
+    });
+    return;
+  }
+
+  const result = await dismissAutomationActionRecord(
+    ctx.supabase,
+    ctx.businessId,
+    actionId
+  );
+
+  if (!result.success) {
+    console.error("[automationActions.dismissed] Failed", {
+      actionId,
+      businessId: ctx.businessId,
+      error: result.error,
+    });
+    return;
+  }
+
+  revalidatePath("/automations");
 }

@@ -49,6 +49,11 @@ export type IntegrationProvider =
 export type IntegrationStatus = "active" | "inactive" | "error";
 
 export type ReviewRequestStatus = "pending" | "sent" | "clicked" | "completed" | "failed";
+export type AutomationActionStatus =
+  | "pending_review"
+  | "reviewed"
+  | "dismissed"
+  | "approved_pending_send";
 
 export interface Business {
   id: string;
@@ -138,6 +143,31 @@ export interface Automation {
   channel: MessageChannel;
   last_triggered_at: string | null;
   trigger_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationActionRecord {
+  id: string;
+  business_id: string;
+  lead_id: string | null;
+  review_request_id: string | null;
+  action_type: string;
+  status: AutomationActionStatus;
+  channel: "sms" | "email" | null;
+  title: string;
+  summary: string | null;
+  suggested_message: string | null;
+  reason: string;
+  reason_code: string | null;
+  source: string;
+  run_id: string | null;
+  audit_log_id: string | null;
+  dedupe_key: string;
+  metadata_json: Record<string, unknown>;
+  reviewed_at: string | null;
+  dismissed_at: string | null;
+  approved_at: string | null;
   created_at: string;
   updated_at: string;
 }

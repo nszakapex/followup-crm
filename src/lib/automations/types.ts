@@ -5,8 +5,7 @@ export type AutomationEntityType = "lead" | "review_request" | "message";
 export type AutomationAction =
   | "would_send_message"
   | "would_create_review_request"
-  | "created_message"
-  | "created_review_request"
+  | "created_pending_action"
   | "skipped"
   | "failed";
 
