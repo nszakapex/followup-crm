@@ -121,3 +121,51 @@ supabase/migrations/007_phase_7c_review_request_lifecycle.sql
 ```
 
 The migration is additive. It adds lifecycle columns, status enum values, indexes, and an updated-at trigger for `review_requests`.
+
+## Phase 7D Operator Visibility
+
+Phase 7D centralizes lifecycle display and retry eligibility logic. The app maps raw `status` and `send_status` values into an operator-facing model:
+
+- lifecycle label
+- attention level
+- explanation
+- whether anything was sent
+- safe reason
+- next operator action
+- priority timestamp
+
+Surfaces that use this model:
+
+- `/reviews`
+- `/leads/[id]`
+- lead detail activity timeline
+- review request history
+
+### Needs Attention
+
+The `/reviews` page highlights blocked, failed, duplicate-prevented, and test-skipped request outcomes.
+
+Examples:
+
+- Blocked: no provider message was sent because setup, contact, opt-out, or provider readiness stopped delivery.
+- Failed: provider/helper delivery failed after the send path started.
+- Duplicate prevented: no provider message was sent because a recent matching request already exists.
+- Test delivery: live provider delivery was skipped by test/skip mode.
+
+### Retry Eligibility
+
+Retry eligibility is centralized, but Phase 7D does not add a retry send button.
+
+Rules:
+
+- sent requests are not retryable by default
+- clicked/completed requests are not retryable
+- duplicate-prevented requests are not retried by default
+- skipped/not-attempted requests are not failures
+- blocked requests require the blocked setup/contact issue to be fixed
+- failed requests require provider readiness and must still pass duplicate prevention
+- any future retry must be manual, one request at a time, server-side, and must re-run provider readiness and duplicate checks
+
+Current UI copy directs operators to create a new manual request after fixing setup instead of retrying in place. This avoids overwriting lifecycle history or adding an unsafe retry path without a linked retry-attempt model.
+
+Phase 7D still does not add automatic sending, cron sending, send-all behavior, bulk messaging, browser secret exposure, or provider credential exposure.

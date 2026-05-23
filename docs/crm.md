@@ -38,6 +38,8 @@ Phase 7C expands review request timeline visibility. Lead detail now distinguish
 
 Blocked and failed events include safe human-readable reasons. Duplicate-prevented events explain that a matching recent request already exists.
 
+Phase 7D uses the shared review request lifecycle display helper so the contact detail page uses the same wording as `/reviews`. The review history now shows whether anything was sent, safe destination/provider context, lifecycle reason, and the next operator action. Retry guidance is informational only; no retry send button is added from the detail page.
+
 ## Pending automation action controls
 
 The detail page reuses the existing automation action server actions:

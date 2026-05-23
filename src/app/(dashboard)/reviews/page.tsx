@@ -27,6 +27,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DEMO_EXTERNAL_CRM_NAME } from "@/lib/demo/constants";
+import {
+  getReviewRequestLifecycle,
+  getReviewRequestRetryEligibility,
+  getSafeReviewRequestDestination,
+} from "@/lib/reviews/lifecycle";
 import { createClient } from "@/lib/supabase/server";
 import type { MessageChannel, ReviewRequestSendStatus, ReviewRequestStatus } from "@/types/database";
 
@@ -34,10 +39,13 @@ type ReviewRequestRow = {
   id: string;
   lead_id: string;
   customer_name: string;
+  phone: string | null;
+  email: string | null;
   channel: MessageChannel;
   status: ReviewRequestStatus;
   send_status: ReviewRequestSendStatus | null;
   provider: string | null;
+  provider_message_id: string | null;
   sent_at: string | null;
   clicked_at: string | null;
   blocked_at: string | null;
@@ -49,6 +57,7 @@ type ReviewRequestRow = {
   source: string | null;
   automation_action_id: string | null;
   created_at: string;
+  updated_at: string | null;
   leads: ReviewRequestLead | ReviewRequestLead[] | null;
 };
 
@@ -98,17 +107,22 @@ function percent(part: number, whole: number) {
   return `${Math.round((part / whole) * 100)}%`;
 }
 
-function getReviewAttentionReason(request: ReviewRequestRow) {
-  if (request.status === "blocked") return request.blocked_reason;
-  if (request.status === "failed") return request.failure_reason;
-  if (request.status === "duplicate_prevented") return request.duplicate_reason;
-  if (request.send_status === "blocked") return request.blocked_reason;
-  if (request.send_status === "failed") return request.failure_reason;
-  if (request.send_status === "duplicate_prevented") return request.duplicate_reason;
-  if (request.send_status === "not_attempted" && request.blocked_reason) {
-    return request.blocked_reason;
+function getLifecycleTone(request: ReviewRequestRow) {
+  const lifecycle = getReviewRequestLifecycle(request);
+
+  if (lifecycle.attentionLevel === "success") {
+    return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
   }
-  return null;
+
+  if (lifecycle.attentionLevel === "danger") {
+    return "border-destructive/25 bg-destructive/10 text-destructive";
+  }
+
+  if (lifecycle.attentionLevel === "warning") {
+    return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
+
+  return "border-border/70 bg-muted/40 text-muted-foreground";
 }
 
 export default async function ReviewsPage() {
@@ -142,7 +156,7 @@ export default async function ReviewsPage() {
     supabase
       .from("review_requests")
       .select(
-        "id, lead_id, customer_name, channel, status, send_status, provider, sent_at, clicked_at, blocked_at, failed_at, duplicate_prevented_at, failure_reason, blocked_reason, duplicate_reason, source, automation_action_id, created_at, leads(id, first_name, last_name, phone, email, external_crm_name)"
+        "id, lead_id, customer_name, phone, email, channel, status, send_status, provider, provider_message_id, sent_at, clicked_at, blocked_at, failed_at, duplicate_prevented_at, failure_reason, blocked_reason, duplicate_reason, source, automation_action_id, created_at, updated_at, leads(id, first_name, last_name, phone, email, external_crm_name)"
       )
       .eq("business_id", profile.business_id)
       .order("created_at", { ascending: false }),
@@ -172,13 +186,14 @@ export default async function ReviewsPage() {
   const pendingRequests = reviewRequests.filter(
     (request) => request.status === "pending"
   ).length;
-  const failedRequests = reviewRequests.filter(
-    (request) =>
-      request.status === "failed" ||
-      request.status === "blocked" ||
-      request.send_status === "failed" ||
-      request.send_status === "blocked"
-  ).length;
+  const attentionRequests = reviewRequests.filter((request) => {
+    const lifecycle = getReviewRequestLifecycle(request);
+    return (
+      lifecycle.attentionLevel === "danger" ||
+      lifecycle.attentionLevel === "warning"
+    );
+  });
+  const failedRequests = attentionRequests.length;
   const engagementRate = percent(clickedLinks, reviewRequests.length);
 
   return (
@@ -278,6 +293,65 @@ export default async function ReviewsPage() {
         </CardContent>
       </Card>
 
+      {attentionRequests.length > 0 && (
+        <Card className="border-amber-500/25 bg-amber-500/5">
+          <CardHeader>
+            <CardTitle>Needs attention</CardTitle>
+            <CardDescription>
+              Blocked, failed, duplicate-prevented, and test-skipped review request outcomes.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3 lg:grid-cols-2">
+            {attentionRequests.slice(0, 6).map((request) => {
+              const lifecycle = getReviewRequestLifecycle(request);
+              const retry = getReviewRequestRetryEligibility(request);
+              const linkedLead = getLinkedLead(request);
+              const customerName =
+                request.customer_name ||
+                [linkedLead?.first_name, linkedLead?.last_name].filter(Boolean).join(" ") ||
+                "Unknown customer";
+
+              return (
+                <div key={request.id} className="rounded-lg border border-border/60 bg-background/80 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <Link
+                        href={`/leads/${request.lead_id}`}
+                        className="text-sm font-medium hover:underline"
+                      >
+                        {customerName}
+                      </Link>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {getSafeReviewRequestDestination(request)} · {formatDate(lifecycle.timestamp)}
+                      </p>
+                    </div>
+                    <Badge variant="outline" className={getLifecycleTone(request)}>
+                      {lifecycle.label}
+                    </Badge>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    {lifecycle.shortExplanation} {lifecycle.sentCopy}
+                  </p>
+                  {lifecycle.reason && (
+                    <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                      {lifecycle.reason}
+                    </p>
+                  )}
+                  <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+                    <p className="text-xs font-medium text-foreground">
+                      Next: {lifecycle.operatorNextAction}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Retry: {retry.nextActionLabel}. {retry.reason}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <div>
@@ -359,15 +433,23 @@ export default async function ReviewsPage() {
                       <TableCell>{request.channel.toUpperCase()}</TableCell>
                       <TableCell>
                         <div className="space-y-1">
-                          <StatusBadge status={request.status} />
+                          <div className="flex flex-wrap items-center gap-2">
+                            <StatusBadge status={request.status} />
+                            <Badge variant="outline" className={getLifecycleTone(request)}>
+                              {getReviewRequestLifecycle(request).label}
+                            </Badge>
+                          </div>
                           {request.send_status && (
                             <p className="text-xs text-muted-foreground">
                               Send: {request.send_status.replaceAll("_", " ")}
                             </p>
                           )}
-                          {getReviewAttentionReason(request) && (
+                          <p className="text-xs text-muted-foreground">
+                            {getReviewRequestLifecycle(request).sentCopy}
+                          </p>
+                          {getReviewRequestLifecycle(request).reason && (
                             <p className="max-w-[18rem] text-xs leading-5 text-amber-700 dark:text-amber-300">
-                              {getReviewAttentionReason(request)}
+                              {getReviewRequestLifecycle(request).reason}
                             </p>
                           )}
                         </div>

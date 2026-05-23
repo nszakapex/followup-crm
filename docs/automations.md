@@ -637,6 +637,10 @@ Automation action send results are linked back to the created review request whe
 
 The automation runner and scheduler still do not send. They only create pending actions. Provider sends still require a logged-in operator clicking `Approve & send` on one pending action.
 
+Phase 7D adds clearer lifecycle inspection after those manual sends. Blocked, failed, duplicate-prevented, and test-skipped review request outcomes are visible in `/reviews` and `/leads/[id]`.
+
+Retry controls are not added to automation or cron flows. Any future retry must remain a manual operator action and must re-run provider readiness and duplicate-prevention checks.
+
 ## Phase 6F Production Cron Scheduling
 
 Phase 6F adds a scheduler-oriented endpoint and business-level scheduling settings. The scheduler creates reviewable work only. It does not send SMS, email, or review requests.

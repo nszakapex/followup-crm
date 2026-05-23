@@ -33,6 +33,11 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getLeadDetail, type ContactTimelineItem } from "@/lib/crm/contact-detail";
+import {
+  getReviewRequestLifecycle,
+  getReviewRequestRetryEligibility,
+  getSafeReviewRequestDestination,
+} from "@/lib/reviews/lifecycle";
 import { createClient } from "@/lib/supabase/server";
 import type { AutomationActionRecord, LeadStatus, Message, ReviewRequest } from "@/types/database";
 
@@ -122,28 +127,22 @@ function getTimelineTone(status: ContactTimelineItem["status"]) {
   return "border-border/70 bg-muted/40 text-muted-foreground";
 }
 
-function getReviewStatusLabel(status: ReviewRequest["status"]) {
-  if (status === "clicked") return "Clicked";
-  if (status === "completed") return "Completed";
-  if (status === "failed") return "Failed";
-  if (status === "blocked") return "Blocked";
-  if (status === "duplicate_prevented") return "Duplicate prevented";
-  if (status === "canceled") return "Canceled";
-  if (status === "sent") return "Sent";
-  return "Pending";
-}
+function getReviewLifecycleTone(request: ReviewRequest) {
+  const lifecycle = getReviewRequestLifecycle(request);
 
-function getReviewStatusReason(request: ReviewRequest) {
-  if (request.status === "blocked") return request.blocked_reason;
-  if (request.status === "failed") return request.failure_reason;
-  if (request.status === "duplicate_prevented") return request.duplicate_reason;
-  if (request.send_status === "blocked") return request.blocked_reason;
-  if (request.send_status === "failed") return request.failure_reason;
-  if (request.send_status === "duplicate_prevented") return request.duplicate_reason;
-  if (request.send_status === "not_attempted" && request.blocked_reason) {
-    return request.blocked_reason;
+  if (lifecycle.attentionLevel === "success") {
+    return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
   }
-  return null;
+
+  if (lifecycle.attentionLevel === "danger") {
+    return "border-destructive/25 bg-destructive/10 text-destructive";
+  }
+
+  if (lifecycle.attentionLevel === "warning") {
+    return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
+
+  return "border-border/70 bg-muted/40 text-muted-foreground";
 }
 
 function getMessageStatusLabel(message: Message) {
@@ -208,6 +207,9 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
     result;
   const lastReviewStatus = detail.reviewStatus.lastReviewRequestStatus;
   const lastSendStatus = detail.sendStatus.lastSendStatus;
+  const latestReviewLifecycle = reviewRequests[0]
+    ? getReviewRequestLifecycle(reviewRequests[0])
+    : null;
 
   return (
     <div className="space-y-8">
@@ -237,8 +239,10 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
           label="Review requests"
           value={detail.reviewStatus.reviewRequestCount}
           context={
-            lastReviewStatus
-              ? `Last status: ${getReviewStatusLabel(lastReviewStatus)}`
+            latestReviewLifecycle
+              ? `Last status: ${latestReviewLifecycle.label}`
+              : lastReviewStatus
+                ? `Last status: ${lastReviewStatus.replaceAll("_", " ")}`
               : "None sent yet"
           }
           icon={Star}
@@ -572,37 +576,67 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                 className="py-8"
               />
             ) : (
-              reviewRequests.map((request) => (
-                <div key={request.id} className="rounded-lg border border-border/60 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">{formatChannel(request.channel)}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Created {formatShortDate(request.created_at)}
+              reviewRequests.map((request) => {
+                const lifecycle = getReviewRequestLifecycle(request);
+                const retry = getReviewRequestRetryEligibility(request);
+
+                return (
+                  <div key={request.id} className="rounded-lg border border-border/60 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-medium">{formatChannel(request.channel)}</p>
+                          <Badge variant="outline" className={getReviewLifecycleTone(request)}>
+                            {lifecycle.label}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Created {formatShortDate(request.created_at)}
+                        </p>
+                      </div>
+                      <StatusBadge status={request.status} />
+                    </div>
+
+                    <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                      {lifecycle.shortExplanation} {lifecycle.sentCopy}
+                    </p>
+
+                    <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                      <p>Send status: {request.send_status ?? "not recorded"}</p>
+                      <p>Source: {request.source ?? "manual"}</p>
+                      <p>Destination: {getSafeReviewRequestDestination(request)}</p>
+                      <p>Provider: {request.provider ?? "none"}</p>
+                      <p>Sent: {formatShortDate(request.sent_at)}</p>
+                      <p>Clicked: {formatShortDate(request.clicked_at)}</p>
+                      <p>Blocked: {formatShortDate(request.blocked_at)}</p>
+                      <p>Failed: {formatShortDate(request.failed_at)}</p>
+                      <p>Duplicate prevented: {formatShortDate(request.duplicate_prevented_at)}</p>
+                      <p>
+                        Provider ID: {request.provider_message_id ? "recorded" : "not recorded"}
                       </p>
                     </div>
-                    <StatusBadge status={request.status} />
+
+                    {request.automation_action_id && (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Linked automation action recorded
+                      </p>
+                    )}
+                    {lifecycle.reason && (
+                      <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                        {lifecycle.reason}
+                      </p>
+                    )}
+                    <div className="mt-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+                      <p className="text-xs font-medium text-foreground">
+                        Next action: {lifecycle.operatorNextAction}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                        Retry: {retry.nextActionLabel}. {retry.reason}
+                      </p>
+                    </div>
                   </div>
-                  <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                    <p>Send status: {request.send_status ?? "not recorded"}</p>
-                    <p>Source: {request.source ?? "manual"}</p>
-                    <p>Sent: {formatShortDate(request.sent_at)}</p>
-                    <p>Clicked: {formatShortDate(request.clicked_at)}</p>
-                    <p>Blocked: {formatShortDate(request.blocked_at)}</p>
-                    <p>Failed: {formatShortDate(request.failed_at)}</p>
-                  </div>
-                  {request.automation_action_id && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Linked automation action recorded
-                    </p>
-                  )}
-                  {getReviewStatusReason(request) && (
-                    <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-xs leading-5 text-amber-700 dark:text-amber-300">
-                      {getReviewStatusReason(request)}
-                    </p>
-                  )}
-                </div>
-              ))
+                );
+              })
             )}
           </CardContent>
         </Card>

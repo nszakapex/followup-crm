@@ -6,6 +6,7 @@ import {
   getSmsProviderReadiness,
   shouldSkipReviewDelivery,
 } from "@/lib/messaging/provider-config";
+import { getReviewRequestLifecycle } from "@/lib/reviews/lifecycle";
 import type {
   AuditLog,
   AutomationActionRecord,
@@ -137,6 +138,15 @@ function getMessageTitle(message: Message) {
 
 function getReviewTimelineItems(request: ReviewRequest): ContactTimelineItem[] {
   const channel = request.channel === "sms" ? "SMS" : request.channel === "email" ? "email" : "manual";
+  const lifecycle = getReviewRequestLifecycle(request);
+  const lifecycleStatus: ContactTimelineStatus =
+    lifecycle.attentionLevel === "danger"
+      ? "error"
+      : lifecycle.attentionLevel === "warning"
+        ? "warning"
+        : lifecycle.attentionLevel === "success"
+          ? "success"
+          : "neutral";
   const createdStatus: ContactTimelineStatus =
     request.status === "failed"
       ? "error"
@@ -148,7 +158,7 @@ function getReviewTimelineItems(request: ReviewRequest): ContactTimelineItem[] {
       id: `review-created-${request.id}`,
       type: "review_request_created",
       title: "Review request created",
-      description: `Created for ${channel}.`,
+      description: `Created for ${channel}. ${lifecycle.sentCopy}`,
       status: createdStatus,
       occurredAt: request.created_at,
       source: "review_requests",
@@ -168,15 +178,17 @@ function getReviewTimelineItems(request: ReviewRequest): ContactTimelineItem[] {
     request.status === "blocked" ||
     (request.send_status === "not_attempted" && request.blocked_reason)
   ) {
-    const notAttempted = request.send_status === "not_attempted" && request.status !== "blocked";
     items.push({
       id: `review-blocked-${request.id}`,
       type: "review_request_blocked",
-      title: notAttempted ? "Review request not attempted" : "Review request blocked",
-      description:
-        request.blocked_reason ??
-        "Delivery was not attempted because a required setup or contact detail was missing.",
-      status: "warning",
+      title:
+        lifecycle.kind === "skipped"
+          ? "Review request skipped"
+          : lifecycle.kind === "not_attempted"
+            ? "Review request not attempted"
+            : "Review request blocked",
+      description: lifecycle.reason ?? lifecycle.shortExplanation,
+      status: lifecycleStatus,
       occurredAt: request.blocked_at ?? request.updated_at ?? request.created_at,
       source: "review_requests",
       metadata: {
@@ -196,11 +208,9 @@ function getReviewTimelineItems(request: ReviewRequest): ContactTimelineItem[] {
     items.push({
       id: `review-duplicate-${request.id}`,
       type: "review_request_duplicate_prevented",
-      title: "Duplicate review request prevented",
-      description:
-        request.duplicate_reason ??
-        "A matching recent review request already exists for this contact and channel.",
-      status: "warning",
+      title: lifecycle.label,
+      description: lifecycle.reason ?? lifecycle.shortExplanation,
+      status: lifecycleStatus,
       occurredAt: request.duplicate_prevented_at ?? request.updated_at ?? request.created_at,
       source: "review_requests",
       metadata: {
@@ -219,11 +229,9 @@ function getReviewTimelineItems(request: ReviewRequest): ContactTimelineItem[] {
     items.push({
       id: `review-failed-${request.id}`,
       type: "review_request_failed",
-      title: "Review request failed",
-      description:
-        request.failure_reason ??
-        "The provider attempt did not complete for this review request.",
-      status: "error",
+      title: lifecycle.label,
+      description: lifecycle.reason ?? lifecycle.shortExplanation,
+      status: lifecycleStatus,
       occurredAt: request.failed_at ?? request.updated_at ?? request.sent_at ?? request.created_at,
       source: "review_requests",
       metadata: {
@@ -244,8 +252,8 @@ function getReviewTimelineItems(request: ReviewRequest): ContactTimelineItem[] {
     items.push({
       id: `review-sent-${request.id}`,
       type: "review_request_sent",
-      title: "Review request sent",
-      description: `Sent by ${channel}.`,
+      title: lifecycle.kind === "clicked" ? "Review request sent" : lifecycle.label,
+      description: `Sent by ${channel}. ${lifecycle.operatorNextAction}`,
       status: "success",
       occurredAt: request.sent_at,
       source: "review_requests",

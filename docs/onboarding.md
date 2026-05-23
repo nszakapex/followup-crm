@@ -48,6 +48,8 @@ Use compliance-safe language. Do not claim the product generates five-star revie
 
 Blocked review requests are recorded with a safe reason and no provider call. Failed review requests mean delivery was attempted through the provider helper and did not complete.
 
+Phase 7D keeps retry guidance operator-only. The app explains what to fix, but it does not add automatic retries, cron retries, send-all behavior, or browser-side provider sends.
+
 ### SMS Readiness
 
 SMS readiness is determined server-side from safe booleans only.
