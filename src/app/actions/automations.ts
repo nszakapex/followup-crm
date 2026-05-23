@@ -7,9 +7,15 @@ import {
   dismissAutomationAction as dismissAutomationActionRecord,
   markAutomationActionReviewed as markAutomationActionRecordReviewed,
 } from "@/lib/automations/action-queue";
+import { sendAutomationAction as sendAutomationActionRecord } from "@/lib/automations/send-action";
 
 type AuthContext =
-  | { ok: true; supabase: Awaited<ReturnType<typeof createClient>>; businessId: string }
+  | {
+      ok: true;
+      supabase: Awaited<ReturnType<typeof createClient>>;
+      businessId: string;
+      userId: string;
+    }
   | { ok: false; reason: string };
 
 type ToggleAutomationResult =
@@ -49,7 +55,7 @@ async function getAuthContext(): Promise<AuthContext> {
     };
   }
 
-  return { ok: true, supabase, businessId: profile.business_id as string };
+  return { ok: true, supabase, businessId: profile.business_id as string, userId: user.id };
 }
 
 export async function toggleAutomation(
@@ -267,6 +273,34 @@ export async function dismissAutomationAction(actionId: string): Promise<void> {
       error: result.error,
     });
     return;
+  }
+
+  revalidatePath("/automations");
+}
+
+export async function sendAutomationAction(actionId: string): Promise<void> {
+  const ctx = await getAuthContext();
+  if (!ctx.ok) {
+    console.error("[automationActions.send] Auth failed", {
+      actionId,
+      error: ctx.reason,
+    });
+    return;
+  }
+
+  const result = await sendAutomationActionRecord(
+    ctx.supabase,
+    ctx.businessId,
+    actionId,
+    ctx.userId
+  );
+
+  if (!result.success) {
+    console.error("[automationActions.send] Failed", {
+      actionId,
+      businessId: ctx.businessId,
+      error: result.error,
+    });
   }
 
   revalidatePath("/automations");

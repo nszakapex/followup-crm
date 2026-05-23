@@ -381,13 +381,13 @@ The runner creates a stable dedupe key:
 automation:<automationType>:lead:<leadId>
 ```
 
-`automation_actions` has a partial unique index for active pending actions:
+`automation_actions` has a partial unique index for active action keys:
 
 ```text
-business_id + dedupe_key where status = 'pending_review'
+business_id + dedupe_key where status in ('pending_review', 'approved_pending_send', 'sent')
 ```
 
-Running the same confirmed automation twice should skip duplicate active pending actions and increase `duplicatesPrevented`.
+Running the same confirmed automation twice should skip duplicate active pending actions and increase `duplicatesPrevented`. Sent actions also keep the same automation/customer/reason combination from immediately creating another pending card.
 
 Reviewed or dismissed actions are no longer active pending actions, so a future confirmed run may create a fresh reviewable action for the same lead/automation if that is still eligible.
 
@@ -408,10 +408,11 @@ The page shows:
 
 Pending actions can be:
 
+- approved and sent one at a time
 - marked reviewed
 - dismissed
 
-Neither action sends anything to a customer.
+`Mark reviewed` and `Dismiss` never send anything to a customer. `Approve & send` is a manual operator action for exactly one pending card.
 
 ### Phase 6D Smoke Tests
 
@@ -496,3 +497,126 @@ Dismiss actions:
 
 - click `Dismiss` on a pending action
 - expected: the action leaves the pending queue, and no provider send occurs
+
+## Phase 6E Manual Approval to Controlled Provider Send
+
+Phase 6E adds a manual send path for pending automation actions. It does not change the protected automation runner: `/api/automations/run` still cannot send through providers, cron still cannot send, and all-business execution is still intentionally deferred.
+
+### Workflow
+
+1. Run a dry-run to see candidates. This creates no actions.
+2. Run a confirmed automation run. This creates `pending_review` automation actions only.
+3. Open `/automations`.
+4. Inspect one pending action.
+5. Click `Approve & send` for that single action.
+6. The server validates business scope, status, channel, lead, opt-out state, duplicate sent state, provider readiness, and message/review-link requirements.
+7. The existing provider-safe path sends or skips delivery according to current environment/provider settings.
+
+There is no `send all` control and no client-visible automation secret.
+
+### Send Paths
+
+Review request actions use the existing review request flow. That flow creates a `review_requests` row, uses the tracked review link, and then uses the existing SMS/email delivery helpers.
+
+Follow-up message actions use the existing SMS/email delivery helpers directly with the queued suggested message.
+
+Delivery helpers still obey:
+
+- `REVIEW_REQUEST_TEST_MODE`
+- `REVIEW_REQUEST_SKIP_DELIVERY`
+- SMS provider readiness
+- email provider readiness
+- missing phone/email validation
+- SMS opt-out validation
+
+If local/test delivery is active, the action is marked processed with `send_status = 'skipped'`; no Twilio or Resend call is made.
+
+### Statuses
+
+Automation action statuses now include:
+
+- `pending_review`
+- `reviewed`
+- `dismissed`
+- `approved_pending_send`
+- `sent`
+- `send_failed`
+- `blocked`
+
+Send result fields:
+
+- `sent_at`
+- `send_status`
+- `provider`
+- `provider_message_id`
+- `provider_response_json`
+- `send_error`
+
+Do not store provider credentials, auth headers, automation secrets, webhook secrets, or raw provider payloads in these fields.
+
+### Audit Events
+
+Manual send writes safe audit events:
+
+- `automation_action.send_requested`
+- `automation_action.sent`
+- `automation_action.send_failed`
+- `automation_action.send_blocked`
+
+Audit metadata contains business/action/channel/status/provider summary fields only. It must not contain provider credentials, auth headers, customer secrets, or raw sensitive payloads.
+
+### Phase 6E Smoke Tests
+
+Pending action appears after confirmed run:
+
+- run the Phase 6D confirmed-run command
+- expected: `/automations` shows one pending action when eligible candidates exist
+
+Send button appears only on pending action:
+
+- open `/automations`
+- expected: each sendable pending card has one `Approve & send` button
+- expected: no `send all` button exists
+
+Manual send:
+
+- click `Approve & send` on one pending action
+- expected: exactly one action is processed
+- expected: action status becomes `sent`, `send_failed`, or `blocked`
+- expected: local/test mode uses `send_status = 'skipped'` and no provider call occurs
+
+Sent action cannot be sent again:
+
+- refresh `/automations`
+- expected: sent action is no longer in the pending queue
+- expected: no second send button appears for that action
+
+Dismissed/reviewed actions cannot be sent:
+
+- click `Dismiss` or `Mark reviewed`
+- expected: action leaves pending queue
+- expected: no provider send occurs
+
+Missing provider readiness:
+
+- disable skip/test mode and omit provider credentials
+- click `Approve & send`
+- expected: action becomes blocked with a safe missing-provider error
+- expected: no provider send occurs
+
+Provider sends remain blocked from automation runner:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"businessId":"BUSINESS_ID","dryRun":true,"allowProviderSends":true}'
+```
+
+Expected:
+
+- `400`
+- no provider send occurs

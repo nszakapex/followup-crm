@@ -53,7 +53,16 @@ export type AutomationActionStatus =
   | "pending_review"
   | "reviewed"
   | "dismissed"
-  | "approved_pending_send";
+  | "approved_pending_send"
+  | "sent"
+  | "send_failed"
+  | "blocked";
+export type AutomationActionSendStatus =
+  | "pending"
+  | "sent"
+  | "failed"
+  | "blocked"
+  | "skipped";
 
 export interface Business {
   id: string;
@@ -168,6 +177,12 @@ export interface AutomationActionRecord {
   reviewed_at: string | null;
   dismissed_at: string | null;
   approved_at: string | null;
+  sent_at: string | null;
+  send_status: AutomationActionSendStatus | null;
+  provider: string | null;
+  provider_message_id: string | null;
+  provider_response_json: Record<string, unknown> | null;
+  send_error: string | null;
   created_at: string;
   updated_at: string;
 }

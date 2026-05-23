@@ -20,6 +20,11 @@ export type AutomationActionQueueItem = Pick<
   | "created_at"
   | "reviewed_at"
   | "dismissed_at"
+  | "sent_at"
+  | "send_status"
+  | "provider"
+  | "provider_message_id"
+  | "send_error"
 > & {
   leadId: string | null;
   leadLabel: string | null;
@@ -55,6 +60,11 @@ type ActionRow = Pick<
   | "created_at"
   | "reviewed_at"
   | "dismissed_at"
+  | "sent_at"
+  | "send_status"
+  | "provider"
+  | "provider_message_id"
+  | "send_error"
 >;
 type LeadRow = Pick<Lead, "id" | "first_name" | "last_name" | "status" | "source">;
 
@@ -118,7 +128,7 @@ export async function listPendingAutomationActions(
   const { data, error } = await supabase
     .from("automation_actions")
     .select(
-      "id, business_id, lead_id, action_type, status, channel, title, summary, suggested_message, reason, reason_code, dedupe_key, metadata_json, created_at, reviewed_at, dismissed_at"
+      "id, business_id, lead_id, action_type, status, channel, title, summary, suggested_message, reason, reason_code, dedupe_key, metadata_json, created_at, reviewed_at, dismissed_at, sent_at, send_status, provider, provider_message_id, send_error"
     )
     .eq("business_id", businessId)
     .eq("status", "pending_review")
@@ -138,7 +148,7 @@ export async function listRecentAutomationActions(
   const { data, error } = await supabase
     .from("automation_actions")
     .select(
-      "id, business_id, lead_id, action_type, status, channel, title, summary, suggested_message, reason, reason_code, dedupe_key, metadata_json, created_at, reviewed_at, dismissed_at"
+      "id, business_id, lead_id, action_type, status, channel, title, summary, suggested_message, reason, reason_code, dedupe_key, metadata_json, created_at, reviewed_at, dismissed_at, sent_at, send_status, provider, provider_message_id, send_error"
     )
     .eq("business_id", businessId)
     .order("created_at", { ascending: false })

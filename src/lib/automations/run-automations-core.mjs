@@ -189,7 +189,7 @@ async function hasDuplicateAction(supabase, businessId, actionKey) {
     .select("id")
     .eq("business_id", businessId)
     .eq("dedupe_key", actionKey)
-    .eq("status", "pending_review")
+    .in("status", ["pending_review", "approved_pending_send", "sent"])
     .limit(1);
 
   if (error) return { duplicate: false, error };

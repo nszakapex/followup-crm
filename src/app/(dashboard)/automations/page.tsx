@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Clock,
   PhoneMissed,
+  Send,
   Star,
   XCircle,
   Zap,
@@ -16,6 +17,7 @@ import {
 import {
   dismissAutomationAction,
   markAutomationActionReviewed,
+  sendAutomationAction,
 } from "@/app/actions/automations";
 import { AutomationToggle } from "@/components/automations/automation-toggle";
 import { Badge } from "@/components/ui/badge";
@@ -115,15 +117,43 @@ function formatActionStatus(status: AutomationActionQueueItem["status"]) {
     reviewed: "Reviewed",
     dismissed: "Dismissed",
     approved_pending_send: "Approved later",
+    sent: "Sent",
+    send_failed: "Send failed",
+    blocked: "Blocked",
   };
 
   return labels[status];
+}
+
+function getActionTone(status: AutomationActionQueueItem["status"]) {
+  if (status === "sent") return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (status === "send_failed" || status === "blocked") {
+    return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  }
+  if (status === "dismissed") return "border-border/70 bg-muted/40 text-muted-foreground";
+  return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
 }
 
 function formatChannel(channel: AutomationActionQueueItem["channel"]) {
   if (channel === "sms") return "SMS";
   if (channel === "email") return "Email";
   return "Manual review";
+}
+
+function formatSendStatus(action: AutomationActionQueueItem) {
+  if (action.send_status === "skipped") return "Delivery skipped";
+  if (action.send_status === "sent") return "Provider sent";
+  if (action.send_status === "failed") return "Delivery failed";
+  if (action.send_status === "blocked") return "Send blocked";
+  return null;
+}
+
+function isPotentiallySendable(action: AutomationActionQueueItem) {
+  return (
+    action.status === "pending_review" &&
+    Boolean(action.leadId) &&
+    (action.channel === "sms" || action.channel === "email")
+  );
 }
 
 function getRunTitle(run: AutomationRunSummary) {
@@ -356,7 +386,8 @@ export default async function AutomationsPage() {
 
               <p className="text-xs leading-5 text-muted-foreground">
                 A production scheduler can call the protected API from a server environment.
-                There is no browser trigger here and no live provider delivery in this phase.
+                There is no browser trigger here and the protected runner cannot deliver
+                through providers.
               </p>
             </>
           )}
@@ -369,7 +400,8 @@ export default async function AutomationsPage() {
             <div>
               <CardTitle>Pending automation actions</CardTitle>
               <CardDescription>
-                Confirmed runs create reviewable actions here. Nothing is sent from this queue.
+                Confirmed runs create reviewable actions here. Sending is manual,
+                one action at a time.
               </CardDescription>
             </div>
             <Badge variant="outline" className="border-border/70 bg-background text-muted-foreground">
@@ -401,7 +433,7 @@ export default async function AutomationsPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-medium">{action.title}</p>
-                        <Badge variant="outline" className="border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                        <Badge variant="outline" className={getActionTone(action.status)}>
                           {formatActionStatus(action.status)}
                         </Badge>
                       </div>
@@ -449,11 +481,25 @@ export default async function AutomationsPage() {
                     </div>
                   )}
 
+                  {!isPotentiallySendable(action) && (
+                    <div className="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-sm leading-6 text-amber-700 dark:text-amber-300">
+                      This action needs a linked lead and SMS or email channel before it can be sent.
+                    </div>
+                  )}
+
                   <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                     <p className="max-w-full truncate text-xs text-muted-foreground">
                       Dedupe protected: {action.dedupe_key}
                     </p>
                     <div className="flex flex-wrap gap-2">
+                      {isPotentiallySendable(action) && (
+                        <form action={sendAutomationAction.bind(null, action.id)}>
+                          <Button type="submit" size="sm">
+                            <Send className="h-3.5 w-3.5" />
+                            Approve & send
+                          </Button>
+                        </form>
+                      )}
                       <form action={markAutomationActionReviewed.bind(null, action.id)}>
                         <Button type="submit" size="sm" variant="outline">
                           <CheckCircle2 className="h-3.5 w-3.5" />
@@ -476,7 +522,7 @@ export default async function AutomationsPage() {
           {recentActions.length > 0 && (
             <div className="space-y-2">
               <p className="text-[0.68rem] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                Recently reviewed actions
+                Recent automation actions
               </p>
               <div className="overflow-hidden rounded-lg border border-border/60">
                 {recentActions.slice(0, 5).map((action) => (
@@ -490,7 +536,19 @@ export default async function AutomationsPage() {
                         {action.leadLabel ?? "No lead linked"}
                       </p>
                     </div>
-                    <p className="text-muted-foreground">{formatActionStatus(action.status)}</p>
+                    <div>
+                      <p className="text-muted-foreground">{formatActionStatus(action.status)}</p>
+                      {formatSendStatus(action) && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {formatSendStatus(action)}
+                        </p>
+                      )}
+                      {action.send_error && (
+                        <p className="mt-1 line-clamp-2 text-xs text-amber-700 dark:text-amber-300">
+                          {action.send_error}
+                        </p>
+                      )}
+                    </div>
                     <p className="text-muted-foreground">{formatChannel(action.channel)}</p>
                     <p className="text-muted-foreground">{formatRelative(action.created_at)}</p>
                   </div>
@@ -500,8 +558,9 @@ export default async function AutomationsPage() {
           )}
 
           <p className="text-xs leading-5 text-muted-foreground">
-            Reviewing or dismissing an action only updates this queue. It does not send SMS,
-            email, or review requests.
+            Reviewing or dismissing an action only updates this queue. Approve & send
+            processes one action through the existing provider-safe path; there is no send-all
+            control and no cron-based provider delivery.
           </p>
         </CardContent>
       </Card>
