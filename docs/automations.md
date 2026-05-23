@@ -145,3 +145,192 @@ Future cron calls should:
 - keep provider sends disabled
 
 All-business scheduled execution is intentionally deferred.
+
+## Phase 6C Visibility
+
+Phase 6C records automation run summaries in `audit_logs` and shows the latest run on the Automations page.
+
+Completed route runs write:
+
+```text
+automation_run.completed
+```
+
+Failed authorized run attempts that are scoped to a valid business id write:
+
+```text
+automation_run.failed
+```
+
+The audit payload includes:
+
+- `businessId`
+- `dryRun`
+- `confirmRun`
+- `evaluated`
+- `eligible`
+- `actionsCreated`
+- `skipped`
+- `failures`
+- `duplicatesPrevented`
+- `providerSendsAllowed`
+- `providerSendsBlocked`
+- `allowProviderSendsRequested`
+- `source`
+- `route`
+- `completedAt`
+- `durationMs`
+- `requestMode`
+- `reason`
+- `error`
+
+Secrets, authorization headers, webhook secrets, provider credentials, and raw customer data are never written to the run summary.
+
+The Automations page reads the latest five run summaries for the signed-in business through normal server-side Supabase/RLS access. It does not call `/api/automations/run`, does not receive any automation secret, and cannot trigger scheduled execution from the browser.
+
+## Route Smoke Tests
+
+No secret:
+
+```powershell
+Invoke-WebRequest `
+  -Uri "http://localhost:3000/api/automations/run" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body '{}'
+```
+
+Expected:
+
+```json
+{"success":false,"error":"Automation run secret is invalid."}
+```
+
+Invalid secret:
+
+```powershell
+Invoke-WebRequest `
+  -Uri "http://localhost:3000/api/automations/run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer wrong-secret" } `
+  -ContentType "application/json" `
+  -Body '{"businessId":"BUSINESS_ID","dryRun":true}'
+```
+
+Expected: `401 Unauthorized`.
+
+Missing business id:
+
+```powershell
+Invoke-WebRequest `
+  -Uri "http://localhost:3000/api/automations/run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"dryRun":true}'
+```
+
+Expected: `400 Bad Request`.
+
+Dry-run:
+
+```powershell
+Invoke-WebRequest `
+  -Uri "http://localhost:3000/api/automations/run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"businessId":"BUSINESS_ID","dryRun":true}'
+```
+
+Expected:
+
+- `200 OK`
+- `success: true`
+- `dryRun: true`
+- `requestMode: "dry_run"`
+- `actionsCreated: 0`
+- `providerSendsAllowed: false`
+- `providerSendsBlocked: true`
+
+Confirmed execution requires:
+
+```json
+{
+  "businessId": "BUSINESS_ID",
+  "dryRun": false,
+  "confirmRun": true
+}
+```
+
+If `dryRun` is false without `confirmRun: true`, the route returns `400 Bad Request`.
+
+Provider sends remain blocked:
+
+```powershell
+Invoke-WebRequest `
+  -Uri "http://localhost:3000/api/automations/run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"businessId":"BUSINESS_ID","dryRun":true,"allowProviderSends":true}'
+```
+
+Expected:
+
+```text
+Provider sends are not enabled for scheduled automation runs.
+```
+
+## Build Verification
+
+Run:
+
+```bash
+npm run build
+```
+
+The route list should include:
+
+```text
+ƒ /api/automations/run
+```
+
+## Production Cron Readiness
+
+Use a server-side scheduler only. Do not call the route from browser code.
+
+Generic cron request:
+
+```http
+POST https://YOUR_DOMAIN/api/automations/run
+Authorization: Bearer $AUTOMATION_RUN_SECRET
+Content-Type: application/json
+
+{
+  "businessId": "BUSINESS_ID",
+  "dryRun": true
+}
+```
+
+Confirmed internal execution:
+
+```http
+POST https://YOUR_DOMAIN/api/automations/run
+Authorization: Bearer $AUTOMATION_RUN_SECRET
+Content-Type: application/json
+
+{
+  "businessId": "BUSINESS_ID",
+  "dryRun": false,
+  "confirmRun": true
+}
+```
+
+Current limitations remain intentional:
+
+- Single-business only.
+- No all-business scheduled execution.
+- No live Twilio or Resend delivery.
+- No browser-visible run trigger.
+- Provider sends are rejected even if `allowProviderSends` is requested.

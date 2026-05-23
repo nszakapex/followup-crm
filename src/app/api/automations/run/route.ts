@@ -20,6 +20,10 @@ type RunRequestBody = {
   source?: unknown;
 };
 
+const ROUTE_PATH = "/api/automations/run";
+const PROVIDER_SENDS_BLOCKED_REASON =
+  "Provider sends are blocked for automation API runs.";
+
 function isDevelopment() {
   return process.env.NODE_ENV !== "production";
 }
@@ -121,34 +125,82 @@ function getRunnerStatus(result: Extract<RunAutomationsResult, { success: false 
   return 500;
 }
 
-async function logRunCompleted(
-  businessId: string,
-  result: Extract<RunAutomationsResult, { success: true }>,
-  source: string
-) {
+function sanitizeError(error: string) {
+  return error.slice(0, 500);
+}
+
+function getRequestMode(dryRun: boolean) {
+  return dryRun ? "dry_run" : "confirmed";
+}
+
+function buildRunMetadata({
+  businessId,
+  dryRun,
+  confirmRun,
+  source,
+  durationMs,
+  completedAt,
+  result,
+  error,
+  allowProviderSendsRequested,
+}: {
+  businessId: string;
+  dryRun: boolean;
+  confirmRun: boolean;
+  source: "api" | "cron";
+  durationMs: number;
+  completedAt: string;
+  result?: Extract<RunAutomationsResult, { success: true }>;
+  error?: string;
+  allowProviderSendsRequested: boolean;
+}) {
+  return {
+    businessId,
+    dryRun,
+    confirmRun,
+    evaluated: result?.evaluated ?? null,
+    eligible: result?.eligible ?? null,
+    actionsCreated: result?.actionsCreated ?? null,
+    skipped: result?.skipped ?? null,
+    failures: result?.failures ?? null,
+    duplicatesPrevented: result?.duplicatesPrevented ?? null,
+    providerSendsAllowed: false,
+    providerSendsBlocked: true,
+    allowProviderSendsRequested,
+    source,
+    route: ROUTE_PATH,
+    completedAt,
+    durationMs,
+    requestMode: getRequestMode(dryRun),
+    reason: PROVIDER_SENDS_BLOCKED_REASON,
+    error: error ? sanitizeError(error) : null,
+  };
+}
+
+async function logRunEvent({
+  businessId,
+  action,
+  metadata,
+}: {
+  businessId: string;
+  action: "automation_run.completed" | "automation_run.failed";
+  metadata: Record<string, unknown>;
+}) {
   try {
     const supabase = createAdminClient();
     const { error } = await supabase.from("audit_logs").insert({
       business_id: businessId,
       user_id: null,
-      action: "automation_run.completed",
+      action,
       entity_type: "business",
       entity_id: businessId,
-      metadata_json: {
-        source,
-        dry_run: result.dryRun,
-        evaluated: result.evaluated,
-        eligible: result.eligible,
-        actions_created: result.actionsCreated,
-        duplicates_prevented: result.duplicatesPrevented,
-        skipped: result.skipped,
-        failures: result.failures,
-      },
+      metadata_json: metadata,
     });
 
     if (error && isDevelopment()) {
       console.warn("[automations.run] Audit log failed", {
         businessId,
+        action,
         error: error.message,
       });
     }
@@ -156,6 +208,7 @@ async function logRunCompleted(
     if (isDevelopment()) {
       console.warn("[automations.run] Audit log unavailable", {
         businessId,
+        action,
         error: error instanceof Error ? error.message : "Unknown audit error",
       });
     }
@@ -163,6 +216,7 @@ async function logRunCompleted(
 }
 
 export async function POST(request: Request) {
+  const startedAt = Date.now();
   const auth = isAuthorized(request);
 
   if (!auth.ok) {
@@ -173,25 +227,6 @@ export async function POST(request: Request) {
 
   if (!body) {
     return jsonResponse({ success: false, error: "Invalid automation run payload." }, 400);
-  }
-
-  const allowProviderSends = parseBoolean(body.allowProviderSends, false);
-
-  if (allowProviderSends === null) {
-    return jsonResponse(
-      { success: false, error: "allowProviderSends must be a boolean." },
-      400
-    );
-  }
-
-  if (allowProviderSends) {
-    return jsonResponse(
-      {
-        success: false,
-        error: "Provider sends are not enabled for scheduled automation runs.",
-      },
-      400
-    );
   }
 
   const businessId = typeof body.businessId === "string" ? body.businessId.trim() : "";
@@ -214,7 +249,58 @@ export async function POST(request: Request) {
     );
   }
 
+  const allowProviderSends = parseBoolean(body.allowProviderSends, false);
+
+  if (allowProviderSends === null) {
+    return jsonResponse(
+      { success: false, error: "allowProviderSends must be a boolean." },
+      400
+    );
+  }
+
+  if (allowProviderSends) {
+    const completedAt = new Date().toISOString();
+    await logRunEvent({
+      businessId,
+      action: "automation_run.failed",
+      metadata: buildRunMetadata({
+        businessId,
+        dryRun,
+        confirmRun,
+        source: "api",
+        durationMs: Date.now() - startedAt,
+        completedAt,
+        error: "Provider sends are not enabled for scheduled automation runs.",
+        allowProviderSendsRequested: true,
+      }),
+    });
+
+    return jsonResponse(
+      {
+        success: false,
+        error: "Provider sends are not enabled for scheduled automation runs.",
+      },
+      400
+    );
+  }
+
   if (!dryRun && !confirmRun) {
+    const completedAt = new Date().toISOString();
+    await logRunEvent({
+      businessId,
+      action: "automation_run.failed",
+      metadata: buildRunMetadata({
+        businessId,
+        dryRun: false,
+        confirmRun: false,
+        source: "api",
+        durationMs: Date.now() - startedAt,
+        completedAt,
+        error: "Confirmed automation execution requires confirmRun=true.",
+        allowProviderSendsRequested: false,
+      }),
+    });
+
     return jsonResponse(
       {
         success: false,
@@ -237,6 +323,7 @@ export async function POST(request: Request) {
     body.source === "cron" || request.headers.get("x-vercel-cron")
       ? "cron"
       : "api";
+  const allowProviderSendsRequested = false;
 
   const result = await runAutomations({
     businessId,
@@ -246,6 +333,22 @@ export async function POST(request: Request) {
   });
 
   if (!result.success) {
+    const completedAt = new Date().toISOString();
+    await logRunEvent({
+      businessId,
+      action: "automation_run.failed",
+      metadata: buildRunMetadata({
+        businessId,
+        dryRun,
+        confirmRun,
+        source,
+        durationMs: Date.now() - startedAt,
+        completedAt,
+        error: result.error,
+        allowProviderSendsRequested,
+      }),
+    });
+
     const response: Record<string, unknown> = {
       success: false,
       error: result.error,
@@ -258,7 +361,35 @@ export async function POST(request: Request) {
     return jsonResponse(response, getRunnerStatus(result));
   }
 
-  await logRunCompleted(businessId, result, source);
+  const completedAt = new Date().toISOString();
+  const durationMs = Date.now() - startedAt;
+  const metadata = buildRunMetadata({
+    businessId,
+    dryRun: result.dryRun,
+    confirmRun,
+    source,
+    durationMs,
+    completedAt,
+    result,
+    allowProviderSendsRequested,
+  });
 
-  return jsonResponse(result, 200);
+  await logRunEvent({
+    businessId,
+    action: "automation_run.completed",
+    metadata,
+  });
+
+  return jsonResponse(
+    {
+      ...result,
+      confirmRun,
+      requestMode: metadata.requestMode,
+      providerSendsBlocked: metadata.providerSendsBlocked,
+      allowProviderSendsRequested: metadata.allowProviderSendsRequested,
+      completedAt,
+      durationMs,
+    },
+    200
+  );
 }
