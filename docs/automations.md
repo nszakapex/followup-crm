@@ -621,6 +621,22 @@ Expected:
 - `400`
 - no provider send occurs
 
+## Phase 7C Review Request Delivery Reliability
+
+Manual automation approval for `review_request` actions now uses the hardened review request lifecycle documented in `docs/review-requests.md`.
+
+Possible outcomes:
+
+- sent
+- not attempted in test/skip mode
+- blocked before provider delivery
+- failed after provider/helper attempt
+- duplicate prevented
+
+Automation action send results are linked back to the created review request when available. Blocked, failed, and duplicate-prevented outcomes are visible on `/leads/[id]` in both the review history and activity timeline.
+
+The automation runner and scheduler still do not send. They only create pending actions. Provider sends still require a logged-in operator clicking `Approve & send` on one pending action.
+
 ## Phase 6F Production Cron Scheduling
 
 Phase 6F adds a scheduler-oriented endpoint and business-level scheduling settings. The scheduler creates reviewable work only. It does not send SMS, email, or review requests.

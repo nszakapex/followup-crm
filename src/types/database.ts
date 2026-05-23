@@ -48,7 +48,21 @@ export type IntegrationProvider =
 
 export type IntegrationStatus = "active" | "inactive" | "error";
 
-export type ReviewRequestStatus = "pending" | "sent" | "clicked" | "completed" | "failed";
+export type ReviewRequestStatus =
+  | "pending"
+  | "sent"
+  | "clicked"
+  | "completed"
+  | "failed"
+  | "blocked"
+  | "duplicate_prevented"
+  | "canceled";
+export type ReviewRequestSendStatus =
+  | "not_attempted"
+  | "blocked"
+  | "sent"
+  | "failed"
+  | "duplicate_prevented";
 export type AutomationActionStatus =
   | "pending_review"
   | "reviewed"
@@ -221,7 +235,22 @@ export interface ReviewRequest {
   click_token: string | null;
   sent_at: string | null;
   clicked_at: string | null;
+  blocked_at: string | null;
+  failed_at: string | null;
+  duplicate_prevented_at: string | null;
+  send_status: ReviewRequestSendStatus | null;
+  provider: string | null;
+  provider_message_id: string | null;
+  provider_response_json: Record<string, unknown> | null;
+  failure_reason: string | null;
+  blocked_reason: string | null;
+  duplicate_reason: string | null;
+  dedupe_key: string | null;
+  source: string | null;
+  google_review_url: string | null;
+  automation_action_id: string | null;
   created_at: string;
+  updated_at: string | null;
 }
 
 export interface Integration {

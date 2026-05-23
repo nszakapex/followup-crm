@@ -46,6 +46,8 @@ Review requests are blocked until:
 
 Use compliance-safe language. Do not claim the product generates five-star reviews, filters bad reviews, removes negative reviews, or offers incentives.
 
+Blocked review requests are recorded with a safe reason and no provider call. Failed review requests mean delivery was attempted through the provider helper and did not complete.
+
 ### SMS Readiness
 
 SMS readiness is determined server-side from safe booleans only.

@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/table";
 import { DEMO_EXTERNAL_CRM_NAME } from "@/lib/demo/constants";
 import { createClient } from "@/lib/supabase/server";
-import type { MessageChannel, ReviewRequestStatus } from "@/types/database";
+import type { MessageChannel, ReviewRequestSendStatus, ReviewRequestStatus } from "@/types/database";
 
 type ReviewRequestRow = {
   id: string;
@@ -36,8 +36,18 @@ type ReviewRequestRow = {
   customer_name: string;
   channel: MessageChannel;
   status: ReviewRequestStatus;
+  send_status: ReviewRequestSendStatus | null;
+  provider: string | null;
   sent_at: string | null;
   clicked_at: string | null;
+  blocked_at: string | null;
+  failed_at: string | null;
+  duplicate_prevented_at: string | null;
+  failure_reason: string | null;
+  blocked_reason: string | null;
+  duplicate_reason: string | null;
+  source: string | null;
+  automation_action_id: string | null;
   created_at: string;
   leads: ReviewRequestLead | ReviewRequestLead[] | null;
 };
@@ -88,6 +98,19 @@ function percent(part: number, whole: number) {
   return `${Math.round((part / whole) * 100)}%`;
 }
 
+function getReviewAttentionReason(request: ReviewRequestRow) {
+  if (request.status === "blocked") return request.blocked_reason;
+  if (request.status === "failed") return request.failure_reason;
+  if (request.status === "duplicate_prevented") return request.duplicate_reason;
+  if (request.send_status === "blocked") return request.blocked_reason;
+  if (request.send_status === "failed") return request.failure_reason;
+  if (request.send_status === "duplicate_prevented") return request.duplicate_reason;
+  if (request.send_status === "not_attempted" && request.blocked_reason) {
+    return request.blocked_reason;
+  }
+  return null;
+}
+
 export default async function ReviewsPage() {
   const supabase = await createClient();
 
@@ -119,7 +142,7 @@ export default async function ReviewsPage() {
     supabase
       .from("review_requests")
       .select(
-        "id, lead_id, customer_name, channel, status, sent_at, clicked_at, created_at, leads(id, first_name, last_name, phone, email, external_crm_name)"
+        "id, lead_id, customer_name, channel, status, send_status, provider, sent_at, clicked_at, blocked_at, failed_at, duplicate_prevented_at, failure_reason, blocked_reason, duplicate_reason, source, automation_action_id, created_at, leads(id, first_name, last_name, phone, email, external_crm_name)"
       )
       .eq("business_id", profile.business_id)
       .order("created_at", { ascending: false }),
@@ -150,7 +173,11 @@ export default async function ReviewsPage() {
     (request) => request.status === "pending"
   ).length;
   const failedRequests = reviewRequests.filter(
-    (request) => request.status === "failed"
+    (request) =>
+      request.status === "failed" ||
+      request.status === "blocked" ||
+      request.send_status === "failed" ||
+      request.send_status === "blocked"
   ).length;
   const engagementRate = percent(clickedLinks, reviewRequests.length);
 
@@ -214,9 +241,9 @@ export default async function ReviewsPage() {
           icon={LinkIcon}
         />
         <MetricCard
-          label="Failed"
+          label="Needs attention"
           value={failedRequests}
-          context="Needs attention"
+          context="Blocked or failed"
           icon={AlertCircle}
           tone={failedRequests > 0 ? "attention" : "neutral"}
         />
@@ -331,7 +358,19 @@ export default async function ReviewsPage() {
                       </TableCell>
                       <TableCell>{request.channel.toUpperCase()}</TableCell>
                       <TableCell>
-                        <StatusBadge status={request.status} />
+                        <div className="space-y-1">
+                          <StatusBadge status={request.status} />
+                          {request.send_status && (
+                            <p className="text-xs text-muted-foreground">
+                              Send: {request.send_status.replaceAll("_", " ")}
+                            </p>
+                          )}
+                          {getReviewAttentionReason(request) && (
+                            <p className="max-w-[18rem] text-xs leading-5 text-amber-700 dark:text-amber-300">
+                              {getReviewAttentionReason(request)}
+                            </p>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>{formatDate(request.sent_at)}</TableCell>
                       <TableCell className="pr-5">{formatDate(request.clicked_at)}</TableCell>

@@ -126,8 +126,24 @@ function getReviewStatusLabel(status: ReviewRequest["status"]) {
   if (status === "clicked") return "Clicked";
   if (status === "completed") return "Completed";
   if (status === "failed") return "Failed";
+  if (status === "blocked") return "Blocked";
+  if (status === "duplicate_prevented") return "Duplicate prevented";
+  if (status === "canceled") return "Canceled";
   if (status === "sent") return "Sent";
   return "Pending";
+}
+
+function getReviewStatusReason(request: ReviewRequest) {
+  if (request.status === "blocked") return request.blocked_reason;
+  if (request.status === "failed") return request.failure_reason;
+  if (request.status === "duplicate_prevented") return request.duplicate_reason;
+  if (request.send_status === "blocked") return request.blocked_reason;
+  if (request.send_status === "failed") return request.failure_reason;
+  if (request.send_status === "duplicate_prevented") return request.duplicate_reason;
+  if (request.send_status === "not_attempted" && request.blocked_reason) {
+    return request.blocked_reason;
+  }
+  return null;
 }
 
 function getMessageStatusLabel(message: Message) {
@@ -568,9 +584,23 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                     <StatusBadge status={request.status} />
                   </div>
                   <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                    <p>Send status: {request.send_status ?? "not recorded"}</p>
+                    <p>Source: {request.source ?? "manual"}</p>
                     <p>Sent: {formatShortDate(request.sent_at)}</p>
                     <p>Clicked: {formatShortDate(request.clicked_at)}</p>
+                    <p>Blocked: {formatShortDate(request.blocked_at)}</p>
+                    <p>Failed: {formatShortDate(request.failed_at)}</p>
                   </div>
+                  {request.automation_action_id && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Linked automation action recorded
+                    </p>
+                  )}
+                  {getReviewStatusReason(request) && (
+                    <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                      {getReviewStatusReason(request)}
+                    </p>
+                  )}
                 </div>
               ))
             )}

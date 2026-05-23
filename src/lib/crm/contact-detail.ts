@@ -23,7 +23,9 @@ export type ContactTimelineType =
   | "lead_captured"
   | "review_request_created"
   | "review_request_sent"
+  | "review_request_blocked"
   | "review_request_failed"
+  | "review_request_duplicate_prevented"
   | "review_request_clicked"
   | "automation_action_created"
   | "automation_action_reviewed"
@@ -135,39 +137,127 @@ function getMessageTitle(message: Message) {
 
 function getReviewTimelineItems(request: ReviewRequest): ContactTimelineItem[] {
   const channel = request.channel === "sms" ? "SMS" : request.channel === "email" ? "email" : "manual";
+  const createdStatus: ContactTimelineStatus =
+    request.status === "failed"
+      ? "error"
+      : request.status === "blocked" || request.status === "duplicate_prevented"
+        ? "warning"
+        : "neutral";
   const items: ContactTimelineItem[] = [
     {
       id: `review-created-${request.id}`,
       type: "review_request_created",
       title: "Review request created",
       description: `Created for ${channel}.`,
-      status: request.status === "failed" ? "error" : "neutral",
+      status: createdStatus,
       occurredAt: request.created_at,
       source: "review_requests",
       metadata: {
         reviewRequestId: request.id,
         channel: request.channel,
         status: request.status,
+        sendStatus: request.send_status,
+        source: request.source,
+        automationActionId: request.automation_action_id,
       },
     },
   ];
 
+  if (
+    request.blocked_at ||
+    request.status === "blocked" ||
+    (request.send_status === "not_attempted" && request.blocked_reason)
+  ) {
+    const notAttempted = request.send_status === "not_attempted" && request.status !== "blocked";
+    items.push({
+      id: `review-blocked-${request.id}`,
+      type: "review_request_blocked",
+      title: notAttempted ? "Review request not attempted" : "Review request blocked",
+      description:
+        request.blocked_reason ??
+        "Delivery was not attempted because a required setup or contact detail was missing.",
+      status: "warning",
+      occurredAt: request.blocked_at ?? request.updated_at ?? request.created_at,
+      source: "review_requests",
+      metadata: {
+        reviewRequestId: request.id,
+        channel: request.channel,
+        status: request.status,
+        sendStatus: request.send_status,
+        provider: request.provider,
+        blockedReason: request.blocked_reason,
+        source: request.source,
+        automationActionId: request.automation_action_id,
+      },
+    });
+  }
+
+  if (request.duplicate_prevented_at || request.status === "duplicate_prevented") {
+    items.push({
+      id: `review-duplicate-${request.id}`,
+      type: "review_request_duplicate_prevented",
+      title: "Duplicate review request prevented",
+      description:
+        request.duplicate_reason ??
+        "A matching recent review request already exists for this contact and channel.",
+      status: "warning",
+      occurredAt: request.duplicate_prevented_at ?? request.updated_at ?? request.created_at,
+      source: "review_requests",
+      metadata: {
+        reviewRequestId: request.id,
+        channel: request.channel,
+        status: request.status,
+        sendStatus: request.send_status,
+        duplicateReason: request.duplicate_reason,
+        source: request.source,
+        automationActionId: request.automation_action_id,
+      },
+    });
+  }
+
+  if (request.failed_at || request.status === "failed") {
+    items.push({
+      id: `review-failed-${request.id}`,
+      type: "review_request_failed",
+      title: "Review request failed",
+      description:
+        request.failure_reason ??
+        "The provider attempt did not complete for this review request.",
+      status: "error",
+      occurredAt: request.failed_at ?? request.updated_at ?? request.sent_at ?? request.created_at,
+      source: "review_requests",
+      metadata: {
+        reviewRequestId: request.id,
+        channel: request.channel,
+        status: request.status,
+        sendStatus: request.send_status,
+        provider: request.provider,
+        providerMessageId: request.provider_message_id,
+        failureReason: request.failure_reason,
+        source: request.source,
+        automationActionId: request.automation_action_id,
+      },
+    });
+  }
+
   if (request.sent_at) {
     items.push({
       id: `review-sent-${request.id}`,
-      type: request.status === "failed" ? "review_request_failed" : "review_request_sent",
-      title: request.status === "failed" ? "Review request failed" : "Review request sent",
-      description:
-        request.status === "failed"
-          ? "Delivery did not complete for this review request."
-          : `Sent by ${channel}.`,
-      status: request.status === "failed" ? "error" : "success",
+      type: "review_request_sent",
+      title: "Review request sent",
+      description: `Sent by ${channel}.`,
+      status: "success",
       occurredAt: request.sent_at,
       source: "review_requests",
       metadata: {
         reviewRequestId: request.id,
         channel: request.channel,
         status: request.status,
+        sendStatus: request.send_status,
+        provider: request.provider,
+        providerMessageId: request.provider_message_id,
+        source: request.source,
+        automationActionId: request.automation_action_id,
       },
     });
   }
@@ -185,6 +275,9 @@ function getReviewTimelineItems(request: ReviewRequest): ContactTimelineItem[] {
         reviewRequestId: request.id,
         channel: request.channel,
         status: request.status,
+        sendStatus: request.send_status,
+        source: request.source,
+        automationActionId: request.automation_action_id,
       },
     });
   }
@@ -474,15 +567,25 @@ export async function getLeadDetail(
   const outboundMessages = messages.filter((message) => message.direction === "outbound");
   const lastOutboundMessage = outboundMessages[0] ?? null;
   const failedMessages = messages.filter((message) => message.status === "failed").length;
+  const failedReviewRequests = reviewRequests.filter(
+    (request) =>
+      request.status === "failed" ||
+      request.status === "blocked" ||
+      request.send_status === "failed" ||
+      request.send_status === "blocked"
+  ).length;
   const failedActions = automationActions.filter(
     (action) => action.status === "send_failed" || action.status === "blocked"
   ).length;
-  const failedSendCount = failedMessages + failedActions;
+  const failedSendCount = failedMessages + failedActions + failedReviewRequests;
   const lastActivityAt = newestDate([
     lead.updated_at,
     messages[0]?.created_at,
     latestReviewRequest?.clicked_at,
     latestReviewRequest?.sent_at,
+    latestReviewRequest?.blocked_at,
+    latestReviewRequest?.failed_at,
+    latestReviewRequest?.duplicate_prevented_at,
     latestReviewRequest?.created_at,
     latestAutomationAction?.updated_at,
     latestAutomationAction?.created_at,
@@ -545,7 +648,12 @@ export async function getLeadDetail(
     reviewStatus: {
       hasReviewLink: Boolean(business?.google_review_link),
       lastReviewRequestAt:
-        latestReviewRequest?.sent_at ?? latestReviewRequest?.created_at ?? null,
+        latestReviewRequest?.sent_at ??
+        latestReviewRequest?.blocked_at ??
+        latestReviewRequest?.failed_at ??
+        latestReviewRequest?.duplicate_prevented_at ??
+        latestReviewRequest?.created_at ??
+        null,
       reviewRequestCount: reviewRequests.length,
       lastReviewRequestStatus: latestReviewRequest?.status ?? null,
     },
@@ -562,6 +670,7 @@ export async function getLeadDetail(
       lastSendChannel: lastOutboundMessage?.channel ?? null,
       lastSendStatus:
         lastOutboundMessage?.status ??
+        latestReviewRequest?.send_status ??
         automationActions.find((action) => action.send_status)?.send_status ??
         null,
       failedSendCount,

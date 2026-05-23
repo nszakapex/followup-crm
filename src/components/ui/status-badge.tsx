@@ -17,6 +17,9 @@ const labels: Record<SupportedStatus, string> = {
   sent: "Sent",
   clicked: "Clicked",
   failed: "Failed",
+  blocked: "Blocked",
+  duplicate_prevented: "Duplicate prevented",
+  canceled: "Canceled",
   enabled: "Enabled",
   paused: "Paused",
 };
@@ -34,6 +37,9 @@ const dotClasses: Record<SupportedStatus, string> = {
   sent: "bg-sky-500",
   clicked: "bg-emerald-500",
   failed: "bg-destructive",
+  blocked: "bg-amber-500",
+  duplicate_prevented: "bg-amber-500",
+  canceled: "bg-muted-foreground",
   enabled: "bg-emerald-500",
   paused: "bg-muted-foreground",
 };

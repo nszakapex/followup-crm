@@ -1,14 +1,37 @@
 import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
+
+import { sendEmail } from "@/lib/messaging/send-email";
+import {
+  getEmailProviderReadiness,
+  getSmsProviderReadiness,
+  shouldSkipReviewDelivery,
+} from "@/lib/messaging/provider-config";
 import { renderTemplate } from "@/lib/messaging/render-template";
 import { sendSms } from "@/lib/messaging/send-sms";
-import { sendEmail } from "@/lib/messaging/send-email";
+import type { DeliveryResult } from "@/lib/messaging/types";
+
+type ReviewRequestOutcome =
+  | "sent"
+  | "not_attempted"
+  | "blocked"
+  | "failed"
+  | "duplicate_prevented";
+type ReviewRequestProvider =
+  | "twilio"
+  | "resend"
+  | "test_mode"
+  | "blocked"
+  | "internal"
+  | "none";
 
 interface SendReviewRequestParams {
   businessId: string;
   authenticatedUserId?: string | null;
   resolvedUsersBusinessId?: string | null;
+  automationActionId?: string | null;
+  source?: "manual" | "automation_action" | "system";
   leadId: string;
   customerName: string;
   phone: string | null;
@@ -17,38 +40,69 @@ interface SendReviewRequestParams {
   optedOut: boolean;
 }
 
-interface SendReviewRequestResult {
-  success: boolean;
-  reviewRequestId: string | null;
-  message?: string;
-  deliverySkipped?: boolean;
-  error?: string;
-}
-
-function createServiceClient(url: string, serviceRoleKey: string) {
-  return createClient(
-    url,
-    serviceRoleKey,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
+export type SendReviewRequestResult =
+  | {
+      success: true;
+      status: "sent" | "not_attempted";
+      channel: "sms" | "email";
+      provider: ReviewRequestProvider;
+      reviewRequestId: string;
+      automationActionId: string | null;
+      leadId: string;
+      businessId: string;
+      providerMessageId: string | null;
+      blockedReason: null;
+      failureReason: null;
+      duplicateReason: null;
+      sentAt: string | null;
+      message: string;
+      deliverySkipped: boolean;
     }
-  );
-}
+  | {
+      success: false;
+      status: Exclude<ReviewRequestOutcome, "sent" | "not_attempted">;
+      channel: "sms" | "email";
+      provider: ReviewRequestProvider;
+      reviewRequestId: string | null;
+      automationActionId: string | null;
+      leadId: string | null;
+      businessId: string;
+      providerMessageId: string | null;
+      blockedReason: string | null;
+      failureReason: string | null;
+      duplicateReason: string | null;
+      sentAt: null;
+      error: string;
+      deliverySkipped?: boolean;
+    };
+
+type ServiceClient = ReturnType<typeof createServiceClient>;
+type BusinessRow = {
+  name: string;
+  google_review_link: string | null;
+  twilio_from_number: string | null;
+  resend_from_email: string | null;
+};
+type ReviewInsertStatus = "pending" | "blocked" | "failed" | "duplicate_prevented";
 
 const DEFAULT_REVIEW_TEMPLATE =
   "Hi {{first_name}}, thank you for choosing {{business_name}}. Would you mind leaving us an honest Google review? Here's the link: {{google_review_link}}";
+const RECENT_DUPLICATE_WINDOW_DAYS = 7;
+
+function createServiceClient(url: string, serviceRoleKey: string) {
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
 
 function isDevelopment() {
   return process.env.NODE_ENV !== "production";
 }
 
-function logReviewRequestDebug(
-  message: string,
-  payload: Record<string, unknown>
-) {
+function logReviewRequestDebug(message: string, payload: Record<string, unknown>) {
   if (!isDevelopment()) return;
 
   console.info(`[reviews:send] ${message}`, payload);
@@ -67,9 +121,7 @@ function getBusinessQueryError(businessId: string, message: string) {
 }
 
 function getDatabaseError(action: string, message: string) {
-  return isDevelopment()
-    ? `${action}: ${message}`
-    : action;
+  return isDevelopment() ? `${action}: ${message}` : action;
 }
 
 function getTrackedReviewLink(clickToken: string | null, googleReviewLink: string) {
@@ -77,20 +129,368 @@ function getTrackedReviewLink(clickToken: string | null, googleReviewLink: strin
 
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL ||
-    (process.env.NODE_ENV !== "production" ? "http://localhost:3001" : null);
+    (process.env.NODE_ENV !== "production" ? "http://localhost:3000" : null);
 
   if (!appUrl) return googleReviewLink;
 
   return `${appUrl.replace(/\/$/, "")}/r/${clickToken}`;
 }
 
+function sanitizeReason(reason: string) {
+  return reason.slice(0, 500);
+}
+
+function normalizeEmail(value: string | null) {
+  return value?.trim().toLowerCase() || null;
+}
+
+function normalizePhone(value: string | null) {
+  const digits = value?.replace(/\D/g, "") ?? "";
+  return digits || value?.trim() || null;
+}
+
+function buildDedupeKey({
+  businessId,
+  leadId,
+  channel,
+  phone,
+  email,
+}: {
+  businessId: string;
+  leadId: string;
+  channel: "sms" | "email";
+  phone: string | null;
+  email: string | null;
+}) {
+  const contact = channel === "sms" ? normalizePhone(phone) : normalizeEmail(email);
+  return `review_request:${businessId}:lead:${leadId}:${channel}:${contact ?? "missing"}`;
+}
+
+function getNameParts(customerName: string) {
+  const nameParts = customerName.trim().split(/\s+/);
+  return {
+    firstName: nameParts[0] || "there",
+    lastName: nameParts.slice(1).join(" ") || "",
+  };
+}
+
+function renderReviewBody({
+  customerName,
+  business,
+  reviewLink,
+}: {
+  customerName: string;
+  business: BusinessRow;
+  reviewLink: string;
+}) {
+  const { firstName, lastName } = getNameParts(customerName);
+
+  return renderTemplate(DEFAULT_REVIEW_TEMPLATE, {
+    first_name: firstName,
+    last_name: lastName,
+    business_name: business.name,
+    google_review_link: reviewLink,
+  });
+}
+
+function getProviderForChannel(channel: "sms" | "email"): ReviewRequestProvider {
+  return channel === "sms" ? "twilio" : "resend";
+}
+
+async function logReviewEvent(
+  supabase: ServiceClient,
+  params: {
+    businessId: string;
+    userId?: string | null;
+    action:
+      | "review_request.created"
+      | "review_request.sent"
+      | "review_request.blocked"
+      | "review_request.failed"
+      | "review_request.duplicate_prevented";
+    entityId: string;
+    metadata: Record<string, unknown>;
+  }
+) {
+  const { error } = await supabase.from("audit_logs").insert({
+    business_id: params.businessId,
+    user_id: params.userId ?? null,
+    action: params.action,
+    entity_type: "lead",
+    entity_id: params.entityId,
+    metadata_json: params.metadata,
+  });
+
+  if (error && isDevelopment()) {
+    console.warn("[reviews:send] Audit log failed", {
+      action: params.action,
+      businessId: params.businessId,
+      entityId: params.entityId,
+      error: error.message,
+    });
+  }
+}
+
+async function ensureLeadBelongsToBusiness(
+  supabase: ServiceClient,
+  businessId: string,
+  leadId: string
+) {
+  const { data, error } = await supabase
+    .from("leads")
+    .select("id")
+    .eq("id", leadId)
+    .eq("business_id", businessId)
+    .maybeSingle();
+
+  return { exists: Boolean(data), error };
+}
+
+async function findRecentDuplicate(
+  supabase: ServiceClient,
+  params: {
+    businessId: string;
+    leadId: string;
+    channel: "sms" | "email";
+    dedupeKey: string;
+  }
+) {
+  const since = new Date();
+  since.setDate(since.getDate() - RECENT_DUPLICATE_WINDOW_DAYS);
+
+  const { data, error } = await supabase
+    .from("review_requests")
+    .select("id, status, created_at")
+    .eq("business_id", params.businessId)
+    .eq("lead_id", params.leadId)
+    .eq("channel", params.channel)
+    .gte("created_at", since.toISOString())
+    .in("status", ["pending", "sent", "clicked", "completed"])
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (error) return { duplicate: null, error };
+  if (data && data.length > 0) return { duplicate: data[0], error: null };
+
+  const byKey = await supabase
+    .from("review_requests")
+    .select("id, status, created_at")
+    .eq("business_id", params.businessId)
+    .eq("dedupe_key", params.dedupeKey)
+    .gte("created_at", since.toISOString())
+    .in("status", ["pending", "sent", "clicked", "completed"])
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (byKey.error) return { duplicate: null, error: byKey.error };
+  return { duplicate: byKey.data?.[0] ?? null, error: null };
+}
+
+async function createReviewRequestRecord(
+  supabase: ServiceClient,
+  params: {
+    businessId: string;
+    leadId: string;
+    customerName: string;
+    phone: string | null;
+    email: string | null;
+    channel: "sms" | "email";
+    messageBody: string;
+    status: ReviewInsertStatus;
+    sendStatus: "not_attempted" | "blocked" | "failed" | "duplicate_prevented";
+    googleReviewUrl: string | null;
+    dedupeKey: string;
+    source: string;
+    automationActionId: string | null;
+    blockedReason?: string | null;
+    failureReason?: string | null;
+    duplicateReason?: string | null;
+  }
+) {
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("review_requests")
+    .insert({
+      business_id: params.businessId,
+      lead_id: params.leadId,
+      customer_name: params.customerName,
+      phone: params.phone || null,
+      email: params.email || null,
+      channel: params.channel,
+      message_body: params.messageBody,
+      status: params.status,
+      send_status: params.sendStatus,
+      google_review_url: params.googleReviewUrl,
+      dedupe_key: params.dedupeKey,
+      source: params.source,
+      automation_action_id: params.automationActionId,
+      blocked_at: params.status === "blocked" ? now : null,
+      failed_at: params.status === "failed" ? now : null,
+      duplicate_prevented_at: params.status === "duplicate_prevented" ? now : null,
+      blocked_reason: params.blockedReason ? sanitizeReason(params.blockedReason) : null,
+      failure_reason: params.failureReason ? sanitizeReason(params.failureReason) : null,
+      duplicate_reason: params.duplicateReason ? sanitizeReason(params.duplicateReason) : null,
+      provider: params.status === "blocked" ? "none" : null,
+    })
+    .select("id, click_token")
+    .single();
+
+  return { reviewRequest: data as { id: string; click_token: string | null } | null, error };
+}
+
+async function createBlockedRequest(
+  supabase: ServiceClient,
+  params: {
+    businessId: string;
+    userId?: string | null;
+    leadId: string;
+    customerName: string;
+    phone: string | null;
+    email: string | null;
+    channel: "sms" | "email";
+    business: BusinessRow;
+    dedupeKey: string;
+    source: string;
+    automationActionId: string | null;
+    reason: string;
+  }
+): Promise<SendReviewRequestResult> {
+  const messageBody = params.business.google_review_link
+    ? renderReviewBody({
+        customerName: params.customerName,
+        business: params.business,
+        reviewLink: params.business.google_review_link,
+      })
+    : "Review request blocked before message creation.";
+  const { reviewRequest, error } = await createReviewRequestRecord(supabase, {
+    ...params,
+    messageBody,
+    status: "blocked",
+    sendStatus: "blocked",
+    googleReviewUrl: params.business.google_review_link,
+    blockedReason: params.reason,
+  });
+
+  if (error || !reviewRequest) {
+    return {
+      success: false,
+      status: "failed",
+      channel: params.channel,
+      provider: "internal",
+      reviewRequestId: null,
+      automationActionId: params.automationActionId,
+      leadId: params.leadId,
+      businessId: params.businessId,
+      providerMessageId: null,
+      blockedReason: null,
+      failureReason: getDatabaseError(
+        "Failed to record blocked review request",
+        error?.message ?? "No review request returned."
+      ),
+      duplicateReason: null,
+      sentAt: null,
+      error: getDatabaseError(
+        "Failed to record blocked review request",
+        error?.message ?? "No review request returned."
+      ),
+    };
+  }
+
+  await logReviewEvent(supabase, {
+    businessId: params.businessId,
+    userId: params.userId,
+    action: "review_request.blocked",
+    entityId: params.leadId,
+    metadata: {
+      businessId: params.businessId,
+      leadId: params.leadId,
+      reviewRequestId: reviewRequest.id,
+      automationActionId: params.automationActionId,
+      channel: params.channel,
+      provider: "none",
+      status: "blocked",
+      blockedReason: sanitizeReason(params.reason),
+      source: params.source,
+      timestamp: new Date().toISOString(),
+    },
+  });
+
+  return {
+    success: false,
+    status: "blocked",
+    channel: params.channel,
+    provider: "none",
+    reviewRequestId: reviewRequest.id,
+    automationActionId: params.automationActionId,
+    leadId: params.leadId,
+    businessId: params.businessId,
+    providerMessageId: null,
+    blockedReason: params.reason,
+    failureReason: null,
+    duplicateReason: null,
+    sentAt: null,
+    error: params.reason,
+  };
+}
+
+async function updateReviewRequestDelivery(
+  supabase: ServiceClient,
+  params: {
+    reviewRequestId: string;
+    delivery: DeliveryResult;
+    deliverySkipped: boolean;
+  }
+) {
+  const now = new Date().toISOString();
+
+  if (params.delivery.success) {
+    const { error } = await supabase
+      .from("review_requests")
+      .update({
+        status: params.deliverySkipped ? "pending" : "sent",
+        send_status: params.deliverySkipped ? "not_attempted" : "sent",
+        provider: params.delivery.provider,
+        provider_message_id: params.delivery.providerMessageId,
+        provider_response_json: {
+          provider: params.delivery.provider,
+          providerMessageId: params.delivery.providerMessageId,
+          deliverySkipped: params.deliverySkipped,
+        },
+        sent_at: params.deliverySkipped ? null : now,
+        failure_reason: null,
+        blocked_reason: params.deliverySkipped ? "Delivery skipped in test mode." : null,
+        failed_at: null,
+      })
+      .eq("id", params.reviewRequestId);
+
+    return { error, sentAt: params.deliverySkipped ? null : now };
+  }
+
+  const { error } = await supabase
+    .from("review_requests")
+    .update({
+      status: "failed",
+      send_status: "failed",
+      provider: params.delivery.provider,
+      provider_message_id: params.delivery.providerMessageId,
+      provider_response_json: {
+        provider: params.delivery.provider,
+        providerMessageId: params.delivery.providerMessageId,
+        userMessage: params.delivery.userMessage,
+      },
+      failure_reason: sanitizeReason(params.delivery.error),
+      failed_at: now,
+    })
+    .eq("id", params.reviewRequestId);
+
+  return { error, sentAt: null };
+}
+
 /**
  * Send a review request to a customer via SMS or email.
  *
- * - Loads the business to get the Google review link and name.
- * - Renders the template with lead/business variables.
- * - Creates a review_requests row.
- * - Sends via test mode, Twilio, or Resend after the row exists.
+ * The function records one clear lifecycle outcome for each attempt:
+ * sent, blocked, failed, duplicate_prevented, or not_attempted in test mode.
  */
 export async function sendReviewRequest(
   params: SendReviewRequestParams
@@ -99,6 +499,8 @@ export async function sendReviewRequest(
     businessId,
     authenticatedUserId,
     resolvedUsersBusinessId,
+    automationActionId = null,
+    source = "manual",
     leadId,
     customerName,
     phone,
@@ -123,7 +525,21 @@ export async function sendReviewRequest(
   if (!supabaseUrl || !serviceRoleKey) {
     return {
       success: false,
+      status: "failed",
+      channel,
+      provider: "internal",
       reviewRequestId: null,
+      automationActionId,
+      leadId,
+      businessId,
+      providerMessageId: null,
+      blockedReason: null,
+      failureReason: getBusinessLookupError(
+        businessId,
+        "Missing Supabase URL or service role key."
+      ),
+      duplicateReason: null,
+      sentAt: null,
       error: getBusinessLookupError(
         businessId,
         "Missing Supabase URL or service role key."
@@ -132,8 +548,6 @@ export async function sendReviewRequest(
   }
 
   const supabase = createServiceClient(supabaseUrl, serviceRoleKey);
-
-  // Load business
   const { data: business, error: businessError } = await supabase
     .from("businesses")
     .select("name, google_review_link, twilio_from_number, resend_from_email")
@@ -157,7 +571,18 @@ export async function sendReviewRequest(
   if (businessError) {
     return {
       success: false,
+      status: "failed",
+      channel,
+      provider: "internal",
       reviewRequestId: null,
+      automationActionId,
+      leadId,
+      businessId,
+      providerMessageId: null,
+      blockedReason: null,
+      failureReason: getBusinessQueryError(businessId, businessError.message),
+      duplicateReason: null,
+      sentAt: null,
       error: getBusinessQueryError(businessId, businessError.message),
     };
   }
@@ -165,84 +590,211 @@ export async function sendReviewRequest(
   if (!business) {
     return {
       success: false,
+      status: "failed",
+      channel,
+      provider: "internal",
       reviewRequestId: null,
+      automationActionId,
+      leadId,
+      businessId,
+      providerMessageId: null,
+      blockedReason: null,
+      failureReason: getBusinessLookupError(businessId, "No matching business row returned."),
+      duplicateReason: null,
+      sentAt: null,
       error: getBusinessLookupError(businessId, "No matching business row returned."),
     };
   }
 
-  if (!business.google_review_link) {
+  const businessRow = business as BusinessRow;
+  const leadCheck = await ensureLeadBelongsToBusiness(supabase, businessId, leadId);
+  if (leadCheck.error || !leadCheck.exists) {
+    const error = leadCheck.error
+      ? getDatabaseError("Customer lookup failed", leadCheck.error.message)
+      : "Customer not found.";
+
     return {
       success: false,
+      status: "failed",
+      channel,
+      provider: "internal",
       reviewRequestId: null,
-      error: "Google review link is not configured. Add it in Settings.",
+      automationActionId,
+      leadId,
+      businessId,
+      providerMessageId: null,
+      blockedReason: null,
+      failureReason: error,
+      duplicateReason: null,
+      sentAt: null,
+      error,
     };
   }
 
-  if (channel !== "sms" && channel !== "email") {
-    return {
-      success: false,
-      reviewRequestId: null,
-      error: "Unsupported review request channel.",
-    };
+  const dedupeKey = buildDedupeKey({ businessId, leadId, channel, phone, email });
+  const blockParams = {
+    businessId,
+    userId: authenticatedUserId,
+    leadId,
+    customerName,
+    phone,
+    email,
+    channel,
+    business: businessRow,
+    dedupeKey,
+    source,
+    automationActionId,
+  };
+
+  if (!businessRow.google_review_link) {
+    return createBlockedRequest(supabase, {
+      ...blockParams,
+      reason: "Google review link is not configured. Add it in Settings.",
+    });
   }
 
   if (channel === "sms" && !phone) {
-    return {
-      success: false,
-      reviewRequestId: null,
-      error: "Customer phone number is required for SMS review requests.",
-    };
+    return createBlockedRequest(supabase, {
+      ...blockParams,
+      reason: "Customer phone number is required for SMS review requests.",
+    });
   }
 
   if (channel === "sms" && optedOut) {
-    return {
-      success: false,
-      reviewRequestId: null,
-      error: "This customer has opted out of review requests.",
-    };
+    return createBlockedRequest(supabase, {
+      ...blockParams,
+      reason: "This customer has opted out of review requests.",
+    });
   }
 
   if (channel === "email" && !email) {
+    return createBlockedRequest(supabase, {
+      ...blockParams,
+      reason: "Customer email is required for email review requests.",
+    });
+  }
+
+  const duplicateCheck = await findRecentDuplicate(supabase, {
+    businessId,
+    leadId,
+    channel,
+    dedupeKey,
+  });
+
+  if (duplicateCheck.error) {
     return {
       success: false,
+      status: "failed",
+      channel,
+      provider: "internal",
       reviewRequestId: null,
-      error: "Customer email is required for email review requests.",
+      automationActionId,
+      leadId,
+      businessId,
+      providerMessageId: null,
+      blockedReason: null,
+      failureReason: getDatabaseError("Review request duplicate lookup failed", duplicateCheck.error.message),
+      duplicateReason: null,
+      sentAt: null,
+      error: getDatabaseError("Review request duplicate lookup failed", duplicateCheck.error.message),
     };
   }
 
-  // Parse first/last from customer name
-  const nameParts = customerName.trim().split(/\s+/);
-  const firstName = nameParts[0] || "";
-  const lastName = nameParts.slice(1).join(" ") || "";
+  if (duplicateCheck.duplicate) {
+    const reason = `A review request was already created for this customer and channel in the last ${RECENT_DUPLICATE_WINDOW_DAYS} days.`;
+    await logReviewEvent(supabase, {
+      businessId,
+      userId: authenticatedUserId,
+      action: "review_request.duplicate_prevented",
+      entityId: leadId,
+      metadata: {
+        businessId,
+        leadId,
+        existingReviewRequestId: duplicateCheck.duplicate.id,
+        automationActionId,
+        channel,
+        provider: "none",
+        status: "duplicate_prevented",
+        duplicateReason: reason,
+        source,
+        timestamp: new Date().toISOString(),
+      },
+    });
 
-  // Render an initial body with the direct Google link so the row can be created.
-  const initialMessageBody = renderTemplate(DEFAULT_REVIEW_TEMPLATE, {
-    first_name: firstName,
-    last_name: lastName,
-    business_name: business.name,
-    google_review_link: business.google_review_link,
-  });
-
-  // Create review request row
-  const { data: reviewRequest, error: insertError } = await supabase
-    .from("review_requests")
-    .insert({
-      business_id: businessId,
-      lead_id: leadId,
-      customer_name: customerName,
-      phone: phone || null,
-      email: email || null,
+    return {
+      success: false,
+      status: "duplicate_prevented",
       channel,
-      message_body: initialMessageBody,
-      status: "pending",
-    })
-    .select("id, click_token")
-    .single();
+      provider: "none",
+      reviewRequestId: duplicateCheck.duplicate.id,
+      automationActionId,
+      leadId,
+      businessId,
+      providerMessageId: null,
+      blockedReason: null,
+      failureReason: null,
+      duplicateReason: reason,
+      sentAt: null,
+      error: reason,
+    };
+  }
+
+  if (!shouldSkipReviewDelivery()) {
+    const readiness =
+      channel === "sms"
+        ? getSmsProviderReadiness(businessRow.twilio_from_number)
+        : getEmailProviderReadiness(businessRow.resend_from_email);
+
+    if (!readiness.configured) {
+      return createBlockedRequest(supabase, {
+        ...blockParams,
+        reason:
+          channel === "sms"
+            ? "SMS provider is not configured."
+            : "Email provider is not configured.",
+      });
+    }
+  }
+
+  const initialMessageBody = renderReviewBody({
+    customerName,
+    business: businessRow,
+    reviewLink: businessRow.google_review_link,
+  });
+  const { reviewRequest, error: insertError } = await createReviewRequestRecord(supabase, {
+    businessId,
+    leadId,
+    customerName,
+    phone,
+    email,
+    channel,
+    messageBody: initialMessageBody,
+    status: "pending",
+    sendStatus: "not_attempted",
+    googleReviewUrl: businessRow.google_review_link,
+    dedupeKey,
+    source,
+    automationActionId,
+  });
 
   if (insertError || !reviewRequest) {
     return {
       success: false,
+      status: "failed",
+      channel,
+      provider: "internal",
       reviewRequestId: null,
+      automationActionId,
+      leadId,
+      businessId,
+      providerMessageId: null,
+      blockedReason: null,
+      failureReason: getDatabaseError(
+        "Failed to create review request",
+        insertError?.message || "Unknown error"
+      ),
+      duplicateReason: null,
+      sentAt: null,
       error: getDatabaseError(
         "Failed to create review request",
         insertError?.message || "Unknown error"
@@ -250,26 +802,64 @@ export async function sendReviewRequest(
     };
   }
 
+  await logReviewEvent(supabase, {
+    businessId,
+    userId: authenticatedUserId,
+    action: "review_request.created",
+    entityId: leadId,
+    metadata: {
+      businessId,
+      leadId,
+      reviewRequestId: reviewRequest.id,
+      automationActionId,
+      channel,
+      provider: "none",
+      status: "pending",
+      source,
+      timestamp: new Date().toISOString(),
+    },
+  });
+
   if (!reviewRequest.click_token) {
+    const failureReason = "Review request click token was not generated.";
+    await updateReviewRequestDelivery(supabase, {
+      reviewRequestId: reviewRequest.id,
+      delivery: {
+        success: false,
+        provider: "blocked",
+        providerMessageId: null,
+        error: failureReason,
+        userMessage: failureReason,
+      },
+      deliverySkipped: false,
+    });
+
     return {
       success: false,
+      status: "failed",
+      channel,
+      provider: "internal",
       reviewRequestId: reviewRequest.id,
-      error: isDevelopment()
-        ? "Review request click token was not generated."
-        : "Failed to create review request.",
+      automationActionId,
+      leadId,
+      businessId,
+      providerMessageId: null,
+      blockedReason: null,
+      failureReason,
+      duplicateReason: null,
+      sentAt: null,
+      error: isDevelopment() ? failureReason : "Failed to create review request.",
     };
   }
 
   const reviewLink = getTrackedReviewLink(
     reviewRequest.click_token,
-    business.google_review_link
+    businessRow.google_review_link
   );
-
-  const messageBody = renderTemplate(DEFAULT_REVIEW_TEMPLATE, {
-    first_name: firstName,
-    last_name: lastName,
-    business_name: business.name,
-    google_review_link: reviewLink,
+  const messageBody = renderReviewBody({
+    customerName,
+    business: businessRow,
+    reviewLink,
   });
 
   if (messageBody !== initialMessageBody) {
@@ -281,7 +871,21 @@ export async function sendReviewRequest(
     if (messageBodyUpdateError) {
       return {
         success: false,
+        status: "failed",
+        channel,
+        provider: "internal",
         reviewRequestId: reviewRequest.id,
+        automationActionId,
+        leadId,
+        businessId,
+        providerMessageId: null,
+        blockedReason: null,
+        failureReason: getDatabaseError(
+          "Failed to update review request link",
+          messageBodyUpdateError.message
+        ),
+        duplicateReason: null,
+        sentAt: null,
         error: getDatabaseError(
           "Failed to update review request link",
           messageBodyUpdateError.message
@@ -290,101 +894,133 @@ export async function sendReviewRequest(
     }
   }
 
-  // Send via appropriate channel. The delivery helpers log the message row and
-  // return a structured result for real, skipped, and failed deliveries.
-  if (channel === "sms") {
-    const deliveryResult = await sendSms({
-      businessId,
-      leadId,
-      to: phone,
-      body: messageBody,
-      optedOut,
-      twilioFromNumber: business.twilio_from_number,
-    });
+  const deliveryResult =
+    channel === "sms"
+      ? await sendSms({
+          businessId,
+          leadId,
+          to: phone,
+          body: messageBody,
+          optedOut,
+          twilioFromNumber: businessRow.twilio_from_number,
+        })
+      : await sendEmail({
+          businessId,
+          leadId,
+          to: email,
+          subject: `${businessRow.name} - Would you leave us a review?`,
+          body: messageBody,
+          fromEmail: businessRow.resend_from_email,
+        });
+  const deliverySkipped = Boolean(deliveryResult.skipped);
+  const updateResult = await updateReviewRequestDelivery(supabase, {
+    reviewRequestId: reviewRequest.id,
+    delivery: deliveryResult,
+    deliverySkipped,
+  });
 
-    const newStatus = deliveryResult.success
-      ? deliveryResult.skipped
-        ? "pending"
-        : "sent"
-      : "failed";
-    const { error: statusUpdateError } = await supabase
-      .from("review_requests")
-      .update({
-        status: newStatus,
-        sent_at: deliveryResult.success && !deliveryResult.skipped
-          ? new Date().toISOString()
-          : null,
-      })
-      .eq("id", reviewRequest.id);
-
-    if (statusUpdateError) {
-      return {
-        success: false,
-        reviewRequestId: reviewRequest.id,
-        error: getDatabaseError(
-          "Failed to update review request status",
-          statusUpdateError.message
-        ),
-      };
-    }
-
+  if (updateResult.error) {
     return {
-      success: deliveryResult.success,
+      success: false,
+      status: "failed",
+      channel,
+      provider: "internal",
       reviewRequestId: reviewRequest.id,
-      message: deliveryResult.userMessage,
-      deliverySkipped: deliveryResult.skipped,
-      error: deliveryResult.success ? undefined : deliveryResult.error,
+      automationActionId,
+      leadId,
+      businessId,
+      providerMessageId: null,
+      blockedReason: null,
+      failureReason: getDatabaseError(
+        "Failed to update review request status",
+        updateResult.error.message
+      ),
+      duplicateReason: null,
+      sentAt: null,
+      error: getDatabaseError(
+        "Failed to update review request status",
+        updateResult.error.message
+      ),
     };
   }
 
-  if (channel === "email") {
-    const deliveryResult = await sendEmail({
+  if (!deliveryResult.success) {
+    const failureReason = deliveryResult.error;
+    await logReviewEvent(supabase, {
       businessId,
-      leadId,
-      to: email,
-      subject: `${business.name} - Would you leave us a review?`,
-      body: messageBody,
-      fromEmail: business.resend_from_email,
+      userId: authenticatedUserId,
+      action: "review_request.failed",
+      entityId: leadId,
+      metadata: {
+        businessId,
+        leadId,
+        reviewRequestId: reviewRequest.id,
+        automationActionId,
+        channel,
+        provider: deliveryResult.provider,
+        providerMessageId: deliveryResult.providerMessageId,
+        status: "failed",
+        failureReason: sanitizeReason(failureReason),
+        source,
+        timestamp: new Date().toISOString(),
+      },
     });
 
-    const newStatus = deliveryResult.success
-      ? deliveryResult.skipped
-        ? "pending"
-        : "sent"
-      : "failed";
-    const { error: statusUpdateError } = await supabase
-      .from("review_requests")
-      .update({
-        status: newStatus,
-        sent_at: deliveryResult.success && !deliveryResult.skipped
-          ? new Date().toISOString()
-          : null,
-      })
-      .eq("id", reviewRequest.id);
-
-    if (statusUpdateError) {
-      return {
-        success: false,
-        reviewRequestId: reviewRequest.id,
-        error: getDatabaseError(
-          "Failed to update review request status",
-          statusUpdateError.message
-        ),
-      };
-    }
-
     return {
-      success: deliveryResult.success,
+      success: false,
+      status: "failed",
+      channel,
+      provider: deliveryResult.provider,
       reviewRequestId: reviewRequest.id,
-      message: deliveryResult.userMessage,
-      deliverySkipped: deliveryResult.skipped,
-      error: deliveryResult.success ? undefined : deliveryResult.error,
+      automationActionId,
+      leadId,
+      businessId,
+      providerMessageId: deliveryResult.providerMessageId,
+      blockedReason: null,
+      failureReason,
+      duplicateReason: null,
+      sentAt: null,
+      error: failureReason,
+      deliverySkipped,
     };
   }
+
+  await logReviewEvent(supabase, {
+    businessId,
+    userId: authenticatedUserId,
+    action: deliverySkipped ? "review_request.blocked" : "review_request.sent",
+    entityId: leadId,
+    metadata: {
+      businessId,
+      leadId,
+      reviewRequestId: reviewRequest.id,
+      automationActionId,
+      channel,
+      provider: deliveryResult.provider,
+      providerMessageId: deliveryResult.providerMessageId,
+      status: deliverySkipped ? "not_attempted" : "sent",
+      blockedReason: deliverySkipped ? "Delivery skipped in test mode." : null,
+      deliverySkipped,
+      source,
+      timestamp: new Date().toISOString(),
+    },
+  });
 
   return {
-    success: false,
+    success: true,
+    status: deliverySkipped ? "not_attempted" : "sent",
+    channel,
+    provider: deliverySkipped ? "test_mode" : getProviderForChannel(channel),
     reviewRequestId: reviewRequest.id,
-    error: "Unsupported review request channel.",
+    automationActionId,
+    leadId,
+    businessId,
+    providerMessageId: deliveryResult.providerMessageId,
+    blockedReason: null,
+    failureReason: null,
+    duplicateReason: null,
+    sentAt: updateResult.sentAt,
+    message: deliveryResult.userMessage,
+    deliverySkipped,
   };
 }

@@ -27,6 +27,17 @@ The timeline is assembled server-side from business-scoped records:
 
 Timeline entries show human-readable titles and safe metadata only. The UI does not render raw provider payloads, auth headers, webhook secrets, automation secrets, or provider credentials.
 
+Phase 7C expands review request timeline visibility. Lead detail now distinguishes:
+
+- review request created
+- review request sent
+- review request blocked before provider delivery
+- review request failed after a provider/helper attempt
+- duplicate review request prevented
+- review link clicked
+
+Blocked and failed events include safe human-readable reasons. Duplicate-prevented events explain that a matching recent request already exists.
+
 ## Pending automation action controls
 
 The detail page reuses the existing automation action server actions:

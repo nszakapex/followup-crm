@@ -111,13 +111,6 @@ export async function sendManualReviewRequest(formData: FormData) {
     };
   }
 
-  if (!business?.google_review_link) {
-    return {
-      success: false as const,
-      error: "Google review link is not configured. Add it in Settings.",
-    };
-  }
-
   const { data: lead, error: leadError } = await supabase
     .from("leads")
     .select("id, first_name, last_name, phone, email, opted_out")
@@ -131,27 +124,6 @@ export async function sendManualReviewRequest(formData: FormData) {
       error: leadError
         ? getDatabaseError("Customer lookup failed", leadError.message)
         : "Customer not found.",
-    };
-  }
-
-  if (channel === "sms" && !lead.phone) {
-    return {
-      success: false as const,
-      error: "Customer phone number is required for SMS review requests.",
-    };
-  }
-
-  if (channel === "sms" && lead.opted_out) {
-    return {
-      success: false as const,
-      error: "This customer has opted out of review requests.",
-    };
-  }
-
-  if (channel === "email" && !lead.email) {
-    return {
-      success: false as const,
-      error: "Customer email is required for email review requests.",
     };
   }
 
@@ -170,6 +142,11 @@ export async function sendManualReviewRequest(formData: FormData) {
   });
 
   if (!result.success) {
+    revalidatePath("/reviews");
+    revalidatePath("/messages");
+    revalidatePath("/dashboard");
+    revalidatePath(`/leads/${lead.id}`);
+
     return {
       success: false as const,
       error: result.error ?? "Failed to send review request.",
@@ -179,10 +156,11 @@ export async function sendManualReviewRequest(formData: FormData) {
   revalidatePath("/reviews");
   revalidatePath("/messages");
   revalidatePath("/dashboard");
+  revalidatePath(`/leads/${lead.id}`);
 
   return {
     success: true as const,
     reviewRequestId: result.reviewRequestId,
-    message: result.message ?? "Review request sent.",
+    message: result.message ?? "Review request processed.",
   };
 }

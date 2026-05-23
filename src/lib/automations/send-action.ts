@@ -512,6 +512,8 @@ export async function sendAutomationAction(
           businessId,
           authenticatedUserId: userId,
           resolvedUsersBusinessId: businessId,
+          automationActionId: action.id,
+          source: "automation_action",
           leadId: lead.id,
           customerName: getLeadName(lead),
           phone: lead.phone,
@@ -524,27 +526,41 @@ export async function sendAutomationAction(
   const normalized =
     "reviewRequestId" in delivery
       ? {
-          provider: delivery.deliverySkipped
-            ? "test_mode"
-            : action.channel === "sms"
-              ? "twilio"
-              : "resend",
-          providerMessageId: null,
+          provider: delivery.provider,
+          providerMessageId: delivery.providerMessageId,
           deliverySkipped: Boolean(delivery.deliverySkipped),
-          userMessage: delivery.message ?? "Automation action sent.",
-          error: delivery.success ? null : delivery.error ?? "Automation action send failed.",
+          userMessage: delivery.success
+            ? delivery.message
+            : delivery.blockedReason ??
+              delivery.failureReason ??
+              delivery.duplicateReason ??
+              delivery.error ??
+              "Automation action send failed.",
+          error:
+            delivery.success
+              ? null
+              : delivery.blockedReason ??
+                delivery.failureReason ??
+                delivery.duplicateReason ??
+                delivery.error ??
+                "Automation action send failed.",
           reviewRequestId: delivery.reviewRequestId,
+          outcomeStatus: delivery.status,
         }
       : {
           ...normalizeProviderResult(delivery),
           reviewRequestId: null,
+          outcomeStatus: delivery.success ? "sent" : "failed",
         };
 
   if (!delivery.success) {
     const errorMessage = normalized.error ?? "Automation action send failed.";
+    const isBlockedOutcome =
+      normalized.outcomeStatus === "blocked" ||
+      normalized.outcomeStatus === "duplicate_prevented";
     const updateError = await markActionFinal(supabase, businessId, action.id, {
-      status: "send_failed",
-      send_status: "failed",
+      status: isBlockedOutcome ? "blocked" : "send_failed",
+      send_status: isBlockedOutcome ? "blocked" : "failed",
       provider: normalized.provider,
       provider_message_id: normalized.providerMessageId,
       review_request_id: normalized.reviewRequestId,
@@ -559,7 +575,9 @@ export async function sendAutomationAction(
     });
 
     await logActionEvent({
-      action: "automation_action.send_failed",
+      action: isBlockedOutcome
+        ? "automation_action.send_blocked"
+        : "automation_action.send_failed",
       businessId,
       userId,
       actionId: action.id,
@@ -569,11 +587,12 @@ export async function sendAutomationAction(
         actionType: action.action_type,
         channel: action.channel,
         previousStatus: "approved_pending_send",
-        nextStatus: "send_failed",
+        nextStatus: isBlockedOutcome ? "blocked" : "send_failed",
         leadId: lead.id,
         reviewRequestId: normalized.reviewRequestId,
         provider: normalized.provider,
         providerMessageId: normalized.providerMessageId,
+        outcomeStatus: normalized.outcomeStatus,
         error: sanitizeError(errorMessage),
         timestamp: sentAt,
       },
