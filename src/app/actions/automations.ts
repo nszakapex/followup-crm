@@ -25,6 +25,11 @@ type ToggleAutomationResult =
 
 const MANAGE_ROLES = ["owner", "manager", "admin"];
 
+function revalidateAutomationActionSurfaces() {
+  revalidatePath("/automations");
+  revalidatePath("/leads/[id]", "page");
+}
+
 async function getAuthContext(): Promise<AuthContext> {
   const supabase = await createClient();
   const {
@@ -248,7 +253,7 @@ export async function markAutomationActionReviewed(actionId: string): Promise<vo
     return;
   }
 
-  revalidatePath("/automations");
+  revalidateAutomationActionSurfaces();
 }
 
 export async function dismissAutomationAction(actionId: string): Promise<void> {
@@ -276,7 +281,7 @@ export async function dismissAutomationAction(actionId: string): Promise<void> {
     return;
   }
 
-  revalidatePath("/automations");
+  revalidateAutomationActionSurfaces();
 }
 
 export async function sendAutomationAction(actionId: string): Promise<void> {
@@ -304,7 +309,7 @@ export async function sendAutomationAction(actionId: string): Promise<void> {
     });
   }
 
-  revalidatePath("/automations");
+  revalidateAutomationActionSurfaces();
 }
 
 export async function enableDailyAutomationSchedule(): Promise<void> {

@@ -215,6 +215,39 @@ const DEMO_LEADS = [
     createdDaysAgo: 29,
     lastContactedDaysAgo: 27,
   },
+  {
+    key: "avery-parker",
+    first_name: "Avery",
+    last_name: "Parker",
+    phone: "5550101011",
+    email: "avery.demo@example.com",
+    source: "Demo completed service",
+    status: "completed",
+    intent: "Completed service",
+    notes:
+      "Demo fixture: completed customer with no seeded review request so confirmed automation runs can create a pending review action.",
+    ai_summary:
+      "Completed demo customer intentionally left review-ready for automation queue smoke tests.",
+    followup_count: 1,
+    createdDaysAgo: 8,
+    lastContactedDaysAgo: 7,
+  },
+  {
+    key: "liam-hughes",
+    first_name: "Liam",
+    last_name: "Hughes",
+    phone: "5550101012",
+    email: "liam.demo@example.com",
+    source: "Missed call demo",
+    status: "new",
+    intent: "Missed call follow-up",
+    notes:
+      "Demo fixture: missed call lead for pending follow-up action smoke tests.",
+    ai_summary:
+      "New missed-call demo lead intentionally eligible for a text-back automation.",
+    followup_count: 0,
+    createdDaysAgo: 4,
+  },
 ];
 
 const DEMO_REVIEW_REQUESTS = [
@@ -276,6 +309,7 @@ Safety:
   - Refuses to run without --business-id and --confirm-demo.
   - Refuses non-demo-looking businesses unless --allow-non-demo-business is passed.
   - Use --dry-run to validate the target without writing.
+  - Seeds review-ready demo leads so a confirmed automation run can create pending actions.
 `);
 }
 
@@ -285,6 +319,7 @@ export function printResetUsage() {
 
 Safety:
   - Deletes only records with the ${DEMO_PREFIX} demo markers.
+  - Deletes pending/sent automation actions linked to demo leads before those leads are removed.
   - Refuses non-demo-looking businesses unless --allow-non-demo-business is passed.
   - Use --dry-run to validate the target without deleting.
 `);
@@ -846,6 +881,8 @@ export async function seedDemoData(args) {
         reviewRequests: DEMO_REVIEW_REQUESTS.length,
         messages: DEMO_MESSAGES.length,
         automations: DEMO_AUTOMATION_ACTIVITY.length,
+        automationActionFixtures:
+          "Confirmed automation runs should create pending actions for Avery Parker and Liam Hughes after reset/seed.",
       },
     };
   }
@@ -910,9 +947,22 @@ export async function resetDemoData(args) {
 
   let deletedMessages = 0;
   let deletedReviewRequests = 0;
+  let deletedAutomationActions = 0;
   let deletedLeads = 0;
 
   if (demoLeadIds.length > 0) {
+    const { count: actionCount, error: actionDeleteError } = await supabase
+      .from("automation_actions")
+      .delete({ count: "exact" })
+      .eq("business_id", business.id)
+      .in("lead_id", demoLeadIds);
+
+    if (actionDeleteError) {
+      throw new Error(`Failed to delete demo automation actions: ${actionDeleteError.message}`);
+    }
+
+    deletedAutomationActions += actionCount ?? 0;
+
     const { count: messageCount, error: messageDeleteError } = await supabase
       .from("messages")
       .delete({ count: "exact" })
@@ -999,6 +1049,7 @@ export async function resetDemoData(args) {
     deleted: {
       messages: deletedMessages,
       reviewRequests: deletedReviewRequests,
+      automationActions: deletedAutomationActions,
       leads: deletedLeads,
       resetAutomations: automationReset.restored,
       deletedSeedCreatedAutomations: automationReset.deletedSeedCreated,

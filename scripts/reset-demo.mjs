@@ -22,6 +22,7 @@ try {
     console.log(`Deleted leads: ${result.deleted.leads}`);
     console.log(`Deleted review requests: ${result.deleted.reviewRequests}`);
     console.log(`Deleted messages: ${result.deleted.messages}`);
+    console.log(`Deleted automation actions: ${result.deleted.automationActions}`);
     console.log(`Reset automation types: ${result.deleted.resetAutomations}`);
     console.log(`Deleted seed-created automations: ${result.deleted.deletedSeedCreatedAutomations}`);
   }

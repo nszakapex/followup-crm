@@ -587,9 +587,16 @@ export default async function AutomationsPage() {
 
                   <div className="mt-4 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
                     <div className="rounded-lg border border-border/60 p-3">
-                      <p className="font-medium text-foreground">
-                        {action.leadLabel ?? "No lead linked"}
-                      </p>
+                      {action.leadId ? (
+                        <Link
+                          href={`/leads/${action.leadId}`}
+                          className="font-medium text-foreground hover:underline"
+                        >
+                          {action.leadLabel ?? "Open lead"}
+                        </Link>
+                      ) : (
+                        <p className="font-medium text-foreground">No lead linked</p>
+                      )}
                       <p className="mt-1">
                         {action.leadStatus ?? "Unknown status"}
                         {action.leadSource ? ` from ${action.leadSource}` : ""}
@@ -671,9 +678,16 @@ export default async function AutomationsPage() {
                   >
                     <div>
                       <p className="font-medium text-foreground">{action.title}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {action.leadLabel ?? "No lead linked"}
-                      </p>
+                      {action.leadId ? (
+                        <Link
+                          href={`/leads/${action.leadId}`}
+                          className="mt-1 inline-flex text-xs text-muted-foreground hover:text-foreground hover:underline"
+                        >
+                          {action.leadLabel ?? "Open lead"}
+                        </Link>
+                      ) : (
+                        <p className="mt-1 text-xs text-muted-foreground">No lead linked</p>
+                      )}
                     </div>
                     <div>
                       <p className="text-muted-foreground">{formatActionStatus(action.status)}</p>
