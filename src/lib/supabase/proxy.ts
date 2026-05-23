@@ -41,8 +41,9 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/signup") ||
     pathname.startsWith("/callback");
   const isReviewRedirectRoute = pathname.startsWith("/r/");
+  const isWebhookRoute = pathname.startsWith("/api/webhooks/");
   const isPublicRoute =
-    pathname === "/" || isAuthRoute || isReviewRedirectRoute;
+    pathname === "/" || isAuthRoute || isReviewRedirectRoute || isWebhookRoute;
 
   if ((!user || authError) && !isPublicRoute) {
     const url = request.nextUrl.clone();

@@ -100,7 +100,23 @@ export default async function SettingsPage() {
   ].filter(Boolean);
   const businessIdentityReady = Boolean(biz.name && biz.owner_email);
   const reviewLinkReady = Boolean(biz.google_review_link);
+  const leadCaptureReady = Boolean(biz.webhook_secret);
   const reviewRequestsReady = Boolean(biz.review_requests_enabled && reviewLinkReady);
+  const appBaseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
+  const webhookPath = `/api/webhooks/leads/${biz.id}/${biz.webhook_secret ?? "{secret}"}`;
+  const webhookEndpoint = appBaseUrl ? `${appBaseUrl}${webhookPath}` : webhookPath;
+  const webhookExamplePayload = `{
+  "fullName": "Sarah Miller",
+  "phone": "5550101001",
+  "email": "sarah@example.com",
+  "source": "Website form",
+  "message": "Interested in booking an appointment.",
+  "metadata": {
+    "page": "/contact",
+    "campaign": "google-ads",
+    "formId": "homepage-contact"
+  }
+}`;
   const settingsReadinessItems: ReadinessItem[] = [
     {
       title: "Business identity",
@@ -165,6 +181,13 @@ export default async function SettingsPage() {
         : providerLabels.length > 0
           ? "complete"
           : "needs_setup",
+    },
+    {
+      title: "Lead capture webhook",
+      description: leadCaptureReady
+        ? "Website forms can create or update leads through the private endpoint."
+        : "Lead capture is not configured for this business.",
+      status: leadCaptureReady ? "complete" : "needs_setup",
     },
     {
       title: "Review activity",
@@ -330,20 +353,46 @@ export default async function SettingsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Webhook className="h-4 w-4" />
-                Webhook endpoint
+                Lead capture webhook
               </CardTitle>
               <CardDescription>
-                Send lead data into FollowUp from external forms and no-code tools.
+                Use this private endpoint from a website form or automation tool.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="rounded-lg border border-border/70 bg-muted/30 p-3 font-mono text-xs break-all">
-                POST /api/webhooks/leads/{biz.id}/{"{secret}"}
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm text-muted-foreground">Lead capture status</span>
+                <Badge variant={leadCaptureReady ? "secondary" : "outline"}>
+                  {leadCaptureReady ? "Configured" : "Not configured"}
+                </Badge>
               </div>
+              {leadCaptureReady ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    Private endpoint
+                  </p>
+                  <div className="rounded-lg border border-border/70 bg-muted/30 p-3 font-mono text-xs break-all">
+                    POST {webhookEndpoint}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
+                  Lead capture is not configured for this business.
+                </div>
+              )}
               <p className="text-xs leading-5 text-muted-foreground">
-                Send JSON with first_name, last_name, phone, email, source, message, notes,
-                external_crm_id, and external_crm_name.
+                Keep this URL private because it contains the lead capture secret. The CRM
+                creates or updates matching leads by email first, then phone. Phone or email is
+                required.
               </p>
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  Example JSON
+                </p>
+                <pre className="overflow-x-auto rounded-lg border border-border/70 bg-muted/30 p-3 text-xs leading-5">
+                  {webhookExamplePayload}
+                </pre>
+              </div>
             </CardContent>
           </Card>
         </div>

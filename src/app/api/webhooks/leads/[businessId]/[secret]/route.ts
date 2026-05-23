@@ -1,7 +1,44 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { timingSafeEqual } from "node:crypto";
 
-// Use service-role client for webhook processing (bypasses RLS)
+import { createClient } from "@supabase/supabase-js";
+import { NextResponse } from "next/server";
+
+import {
+  normalizeLeadPayload,
+  normalizePhone,
+  type NormalizedLeadPayload,
+} from "@/lib/webhooks/lead-payload";
+import type { LeadStatus } from "@/types/database";
+
+const MAX_PAYLOAD_BYTES = 64_000;
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+const LEAD_SELECT =
+  "id, first_name, last_name, phone, email, source, status, notes, external_crm_name, external_crm_id";
+const PROGRESSED_STATUSES = new Set<LeadStatus>([
+  "booked",
+  "completed",
+  "review_requested",
+  "lost",
+]);
+
+type ServiceClient = ReturnType<typeof createServiceClient>;
+type LeadMatch = {
+  id: string;
+  first_name: string;
+  last_name: string | null;
+  phone: string | null;
+  email: string | null;
+  source: string | null;
+  status: LeadStatus;
+  notes: string | null;
+  external_crm_name: string | null;
+  external_crm_id: string | null;
+};
+
 function createServiceClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -10,7 +47,274 @@ function createServiceClient() {
     throw new Error("Missing Supabase service role configuration");
   }
 
-  return createClient(url, serviceKey);
+  return createClient(url, serviceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+function isDevelopment() {
+  return process.env.NODE_ENV !== "production";
+}
+
+function jsonResponse(body: Record<string, unknown>, status: number) {
+  return NextResponse.json(body, { status, headers: CORS_HEADERS });
+}
+
+function getDatabaseError(action: string, message: string) {
+  return isDevelopment() ? `${action}: ${message}` : action;
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value
+  );
+}
+
+function safeCompareSecret(incoming: string, stored: string) {
+  const incomingBuffer = Buffer.from(incoming);
+  const storedBuffer = Buffer.from(stored);
+
+  if (incomingBuffer.length !== storedBuffer.length) return false;
+
+  return timingSafeEqual(incomingBuffer, storedBuffer);
+}
+
+async function readPayload(request: Request) {
+  const text = await request.text();
+
+  if (!text || text.length > MAX_PAYLOAD_BYTES) return null;
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+async function logAuditEvent(
+  supabase: ServiceClient,
+  params: {
+    businessId: string;
+    action: string;
+    entityType: string;
+    entityId: string;
+    metadata?: Record<string, unknown>;
+  }
+) {
+  const { error } = await supabase.from("audit_logs").insert({
+    business_id: params.businessId,
+    user_id: null,
+    action: params.action,
+    entity_type: params.entityType,
+    entity_id: params.entityId,
+    metadata_json: params.metadata ?? null,
+  });
+
+  if (error && isDevelopment()) {
+    console.warn("[webhooks.leads] Audit log failed", {
+      businessId: params.businessId,
+      action: params.action,
+      error: error.message,
+    });
+  }
+}
+
+async function createWebhookEvent(
+  supabase: ServiceClient,
+  businessId: string,
+  payload: NormalizedLeadPayload,
+  errorMessage?: string
+) {
+  const { data, error } = await supabase
+    .from("webhook_events")
+    .insert({
+      business_id: businessId,
+      source: payload.source,
+      payload_json: payload.eventPayload,
+      processed: Boolean(errorMessage),
+      error_message: errorMessage ?? null,
+    })
+    .select("id")
+    .single();
+
+  return { eventId: data?.id as string | undefined, error };
+}
+
+async function markWebhookEventProcessed(
+  supabase: ServiceClient,
+  eventId: string,
+  errorMessage?: string
+) {
+  const { error } = await supabase
+    .from("webhook_events")
+    .update({
+      processed: true,
+      error_message: errorMessage ?? null,
+    })
+    .eq("id", eventId);
+
+  return error;
+}
+
+async function findExistingLead(
+  supabase: ServiceClient,
+  businessId: string,
+  lead: NormalizedLeadPayload
+) {
+  if (lead.email) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select(LEAD_SELECT)
+      .eq("business_id", businessId)
+      .ilike("email", lead.email)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return { lead: null, error };
+    if (data) return { lead: data as LeadMatch, error: null };
+  }
+
+  if (lead.phone) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select(LEAD_SELECT)
+      .eq("business_id", businessId)
+      .not("phone", "is", null);
+
+    if (error) return { lead: null, error };
+
+    const match = ((data ?? []) as LeadMatch[]).find(
+      (candidate) => normalizePhone(candidate.phone) === lead.phone
+    );
+
+    if (match) return { lead: match, error: null };
+  }
+
+  if (lead.externalCrmId) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select(LEAD_SELECT)
+      .eq("business_id", businessId)
+      .eq("external_crm_name", lead.externalCrmName)
+      .eq("external_crm_id", lead.externalCrmId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) return { lead: null, error };
+    if (data) return { lead: data as LeadMatch, error: null };
+  }
+
+  return { lead: null, error: null };
+}
+
+function buildLeadUpdate(existingLead: LeadMatch, lead: NormalizedLeadPayload) {
+  const update: Record<string, unknown> = {};
+
+  if (lead.firstName !== "Unknown" && existingLead.first_name === "Unknown") {
+    update.first_name = lead.firstName;
+  }
+
+  if (lead.lastName && !existingLead.last_name) update.last_name = lead.lastName;
+  if (lead.phone && !existingLead.phone) update.phone = lead.phone;
+  if (lead.email && !existingLead.email) update.email = lead.email;
+  if (lead.source && !existingLead.source) update.source = lead.source;
+  if (lead.externalCrmId && !existingLead.external_crm_id) {
+    update.external_crm_id = lead.externalCrmId;
+    update.sync_status = "synced";
+  }
+  if (lead.externalCrmName && !existingLead.external_crm_name) {
+    update.external_crm_name = lead.externalCrmName;
+  }
+  if (lead.notes) {
+    update.notes = mergeNotes(existingLead.notes, lead.notes);
+  }
+  if (!PROGRESSED_STATUSES.has(existingLead.status)) {
+    update.status = "needs_reply";
+  }
+
+  return update;
+}
+
+function mergeNotes(existingNotes: string | null, incomingNotes: string) {
+  if (!existingNotes) return incomingNotes;
+  if (existingNotes.includes(incomingNotes)) return existingNotes;
+
+  const merged = `${existingNotes}\n\nWebhook update:\n${incomingNotes}`;
+  return merged.length > 4000 ? merged.slice(0, 4000) : merged;
+}
+
+async function createLead(
+  supabase: ServiceClient,
+  businessId: string,
+  lead: NormalizedLeadPayload
+) {
+  const { data, error } = await supabase
+    .from("leads")
+    .insert({
+      business_id: businessId,
+      first_name: lead.firstName,
+      last_name: lead.lastName,
+      phone: lead.phone,
+      email: lead.email,
+      source: lead.source,
+      notes: lead.notes,
+      status: "new",
+      external_crm_name: lead.externalCrmName,
+      external_crm_id: lead.externalCrmId,
+      sync_status: lead.externalCrmId ? "synced" : "not_connected",
+      consent_source: "website_webhook",
+    })
+    .select("id")
+    .single();
+
+  return { leadId: data?.id as string | undefined, error };
+}
+
+async function updateLead(
+  supabase: ServiceClient,
+  existingLead: LeadMatch,
+  lead: NormalizedLeadPayload
+) {
+  const update = buildLeadUpdate(existingLead, lead);
+
+  if (Object.keys(update).length === 0) {
+    return { leadId: existingLead.id, error: null };
+  }
+
+  const { error } = await supabase
+    .from("leads")
+    .update(update)
+    .eq("id", existingLead.id);
+
+  return { leadId: existingLead.id, error };
+}
+
+async function logInboundMessage(
+  supabase: ServiceClient,
+  businessId: string,
+  leadId: string,
+  body: string | null
+) {
+  if (!body) return null;
+
+  const { error } = await supabase.from("messages").insert({
+    business_id: businessId,
+    lead_id: leadId,
+    channel: "manual_note",
+    direction: "inbound",
+    body,
+    status: "received",
+    received_at: new Date().toISOString(),
+  });
+
+  return error;
+}
+
+export function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
 }
 
 export async function POST(
@@ -19,186 +323,253 @@ export async function POST(
 ) {
   const { businessId, secret } = await props.params;
 
+  if (!isUuid(businessId)) {
+    return jsonResponse(
+      { success: false, error: "Invalid business id." },
+      400
+    );
+  }
+
+  let supabase: ServiceClient;
+
   try {
-    const supabase = createServiceClient();
-
-    // Validate the webhook secret
-    const { data: business, error: bizError } = await supabase
-      .from("businesses")
-      .select("id, webhook_secret, name")
-      .eq("id", businessId)
-      .single();
-
-    if (bizError || !business) {
-      return NextResponse.json(
-        { error: "Business not found" },
-        { status: 404 }
-      );
-    }
-
-    if (business.webhook_secret !== secret) {
-      return NextResponse.json(
-        { error: "Invalid webhook secret" },
-        { status: 401 }
-      );
-    }
-
-    // Parse the payload
-    let payload: Record<string, unknown>;
-    try {
-      payload = await request.json();
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid JSON payload" },
-        { status: 400 }
-      );
-    }
-
-    // Store raw webhook event
-    await supabase.from("webhook_events").insert({
-      business_id: businessId,
-      source: (payload.source as string) || "webhook",
-      payload_json: payload,
-      processed: false,
+    supabase = createServiceClient();
+  } catch (error) {
+    console.error("[webhooks.leads] Supabase service configuration missing", {
+      message: error instanceof Error ? error.message : "Unknown configuration error",
     });
 
-    // Extract lead fields
-    const firstName =
-      (payload.first_name as string) ||
-      (payload.name as string)?.split(" ")[0] ||
-      "Unknown";
-    const lastName =
-      (payload.last_name as string) ||
-      (payload.name as string)?.split(" ").slice(1).join(" ") ||
-      null;
-    const phone = (payload.phone as string) || null;
-    const email = (payload.email as string) || null;
-    const source = (payload.source as string) || "webhook";
-    const message = (payload.message as string) || null;
-    const notes = (payload.notes as string) || message || null;
-    const externalCrmId = (payload.external_crm_id as string) || null;
-    const externalCrmName = (payload.external_crm_name as string) || null;
+    return jsonResponse(
+      { success: false, error: "Webhook service is not configured." },
+      500
+    );
+  }
 
-    if (!phone && !email) {
-      // Mark webhook event as processed with error
-      await supabase
-        .from("webhook_events")
-        .update({
-          processed: true,
-          error_message: "No phone or email provided",
-        })
-        .eq("business_id", businessId)
-        .order("created_at", { ascending: false })
-        .limit(1);
+  const { data: business, error: businessError } = await supabase
+    .from("businesses")
+    .select("id, webhook_secret")
+    .eq("id", businessId)
+    .maybeSingle();
 
-      return NextResponse.json(
-        { error: "A phone number or email is required" },
-        { status: 400 }
-      );
-    }
+  if (businessError) {
+    console.error("[webhooks.leads] Business lookup failed", {
+      businessId,
+      error: businessError.message,
+    });
 
-    // Check for existing lead by phone or email
-    let existingLead = null;
-    if (phone) {
-      const { data } = await supabase
-        .from("leads")
-        .select("id")
-        .eq("business_id", businessId)
-        .eq("phone", phone)
-        .limit(1)
-        .single();
-      existingLead = data;
-    }
-    if (!existingLead && email) {
-      const { data } = await supabase
-        .from("leads")
-        .select("id")
-        .eq("business_id", businessId)
-        .eq("email", email)
-        .limit(1)
-        .single();
-      existingLead = data;
-    }
+    return jsonResponse(
+      {
+        success: false,
+        error: getDatabaseError("Webhook business lookup failed", businessError.message),
+      },
+      500
+    );
+  }
 
-    let leadId: string;
+  if (!business) {
+    return jsonResponse(
+      { success: false, error: "Business not found." },
+      404
+    );
+  }
 
-    if (existingLead) {
-      // Update existing lead
-      await supabase
-        .from("leads")
-        .update({
-          status: "needs_reply",
-          notes: notes
-            ? `${notes}`
-            : undefined,
-          external_crm_id: externalCrmId || undefined,
-          external_crm_name: externalCrmName || undefined,
-        })
-        .eq("id", existingLead.id);
+  if (!business.webhook_secret) {
+    return jsonResponse(
+      { success: false, error: "Lead capture is not configured for this business." },
+      403
+    );
+  }
 
-      leadId = existingLead.id;
-    } else {
-      // Create new lead
-      const { data: newLead, error: leadError } = await supabase
-        .from("leads")
-        .insert({
-          business_id: businessId,
-          first_name: firstName,
-          last_name: lastName,
-          phone,
-          email,
-          source,
-          notes,
-          status: "new",
-          external_crm_id: externalCrmId,
-          external_crm_name: externalCrmName,
-          sync_status: externalCrmId ? "synced" : "not_connected",
-        })
-        .select("id")
-        .single();
+  if (!secret || !safeCompareSecret(secret, business.webhook_secret)) {
+    await logAuditEvent(supabase, {
+      businessId,
+      action: "webhook.invalid_secret",
+      entityType: "business",
+      entityId: businessId,
+      metadata: { route: "lead_capture" },
+    });
 
-      if (leadError) {
-        return NextResponse.json(
-          { error: "Failed to create lead: " + leadError.message },
-          { status: 500 }
-        );
-      }
+    return jsonResponse(
+      { success: false, error: "Webhook secret is invalid." },
+      401
+    );
+  }
 
-      leadId = newLead.id;
-    }
+  const rawPayload = await readPayload(request);
 
-    // Log inbound message if there's a message body
-    if (message) {
-      await supabase.from("messages").insert({
-        business_id: businessId,
-        lead_id: leadId,
-        channel: "manual_note",
-        direction: "inbound",
-        body: message,
-        status: "received",
-        received_at: new Date().toISOString(),
+  if (!rawPayload) {
+    await logAuditEvent(supabase, {
+      businessId,
+      action: "webhook.invalid_payload",
+      entityType: "business",
+      entityId: businessId,
+      metadata: { reason: "invalid_json" },
+    });
+
+    return jsonResponse(
+      { success: false, error: "Invalid webhook payload." },
+      400
+    );
+  }
+
+  const leadPayload = normalizeLeadPayload(rawPayload);
+
+  if (!leadPayload) {
+    await logAuditEvent(supabase, {
+      businessId,
+      action: "webhook.invalid_payload",
+      entityType: "business",
+      entityId: businessId,
+      metadata: { reason: "unsupported_payload_shape" },
+    });
+
+    return jsonResponse(
+      { success: false, error: "Invalid webhook payload." },
+      400
+    );
+  }
+
+  if (!leadPayload.phone && !leadPayload.email) {
+    const { error: eventError } = await createWebhookEvent(
+      supabase,
+      businessId,
+      leadPayload,
+      "Lead requires at least a phone number or email."
+    );
+
+    if (eventError) {
+      console.error("[webhooks.leads] Failed to record invalid payload", {
+        businessId,
+        error: eventError.message,
       });
     }
 
-    // Mark webhook event as processed
-    await supabase
-      .from("webhook_events")
-      .update({ processed: true })
-      .eq("business_id", businessId)
-      .eq("processed", false)
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    return NextResponse.json({
-      success: true,
-      lead_id: leadId,
-      is_new: !existingLead,
+    await logAuditEvent(supabase, {
+      businessId,
+      action: "webhook.invalid_payload",
+      entityType: "business",
+      entityId: businessId,
+      metadata: { reason: "missing_contact" },
     });
-  } catch (err) {
-    console.error("Webhook error:", err);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
+
+    return jsonResponse(
+      { success: false, error: "Lead requires at least a phone number or email." },
+      400
     );
   }
+
+  const { eventId, error: eventError } = await createWebhookEvent(
+    supabase,
+    businessId,
+    leadPayload
+  );
+
+  if (eventError || !eventId) {
+    console.error("[webhooks.leads] Failed to record webhook event", {
+      businessId,
+      error: eventError?.message ?? "No webhook event id returned",
+    });
+
+    return jsonResponse(
+      {
+        success: false,
+        error: getDatabaseError(
+          "Webhook event could not be recorded",
+          eventError?.message ?? "No webhook event id returned"
+        ),
+      },
+      500
+    );
+  }
+
+  const { lead: existingLead, error: dedupeError } = await findExistingLead(
+    supabase,
+    businessId,
+    leadPayload
+  );
+
+  if (dedupeError) {
+    await markWebhookEventProcessed(
+      supabase,
+      eventId,
+      "Lead lookup failed during duplicate prevention."
+    );
+
+    return jsonResponse(
+      {
+        success: false,
+        error: getDatabaseError("Lead lookup failed", dedupeError.message),
+      },
+      500
+    );
+  }
+
+  const saveResult = existingLead
+    ? await updateLead(supabase, existingLead, leadPayload)
+    : await createLead(supabase, businessId, leadPayload);
+
+  if (saveResult.error || !saveResult.leadId) {
+    await markWebhookEventProcessed(
+      supabase,
+      eventId,
+      existingLead ? "Lead update failed." : "Lead creation failed."
+    );
+
+    return jsonResponse(
+      {
+        success: false,
+        error: getDatabaseError(
+          existingLead ? "Lead could not be updated" : "Lead could not be created",
+          saveResult.error?.message ?? "No lead id returned"
+        ),
+      },
+      500
+    );
+  }
+
+  const messageError = await logInboundMessage(
+    supabase,
+    businessId,
+    saveResult.leadId,
+    leadPayload.message
+  );
+
+  if (messageError) {
+    console.error("[webhooks.leads] Failed to log inbound message", {
+      businessId,
+      leadId: saveResult.leadId,
+      error: messageError.message,
+    });
+  }
+
+  const processedError = await markWebhookEventProcessed(supabase, eventId);
+
+  if (processedError) {
+    console.error("[webhooks.leads] Failed to mark webhook event processed", {
+      businessId,
+      eventId,
+      error: processedError.message,
+    });
+  }
+
+  await logAuditEvent(supabase, {
+    businessId,
+    action: existingLead ? "webhook.lead_updated" : "webhook.lead_created",
+    entityType: "lead",
+    entityId: saveResult.leadId,
+    metadata: {
+      source: leadPayload.source,
+      matchedBy: existingLead ? "email_phone_or_external_id" : null,
+    },
+  });
+
+  return jsonResponse(
+    {
+      success: true,
+      leadId: saveResult.leadId,
+      created: !existingLead,
+      updated: Boolean(existingLead),
+    },
+    existingLead ? 200 : 201
+  );
 }
