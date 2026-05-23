@@ -51,6 +51,16 @@ function getIncomingSecret(request: Request) {
 }
 
 function isAuthorized(request: Request) {
+  const incomingSecret = getIncomingSecret(request);
+
+  if (!incomingSecret) {
+    return {
+      ok: false as const,
+      status: 401,
+      error: "Automation run secret is invalid.",
+    };
+  }
+
   const expectedSecret = getExpectedSecret();
 
   if (!expectedSecret) {
@@ -61,9 +71,7 @@ function isAuthorized(request: Request) {
     };
   }
 
-  const incomingSecret = getIncomingSecret(request);
-
-  if (!incomingSecret || !safeCompareSecret(incomingSecret, expectedSecret)) {
+  if (!safeCompareSecret(incomingSecret, expectedSecret)) {
     return {
       ok: false as const,
       status: 401,
