@@ -620,3 +620,269 @@ Expected:
 
 - `400`
 - no provider send occurs
+
+## Phase 6F Production Cron Scheduling
+
+Phase 6F adds a scheduler-oriented endpoint and business-level scheduling settings. The scheduler creates reviewable work only. It does not send SMS, email, or review requests.
+
+### Routes
+
+Single-business runner:
+
+```text
+POST /api/automations/run
+```
+
+Use this for targeted local testing or one known business.
+
+Scheduler runner:
+
+```text
+POST /api/automations/scheduled-run
+```
+
+Use this from a server-side cron provider. It can run one supplied business id or, when no business id is supplied, eligible scheduled businesses up to a strict limit.
+
+Both routes require:
+
+```text
+Authorization: Bearer $AUTOMATION_RUN_SECRET
+```
+
+or:
+
+```text
+x-automation-secret: $AUTOMATION_RUN_SECRET
+```
+
+`CRON_SECRET` is supported as a server-only fallback. Do not prefix these variables with `NEXT_PUBLIC_`.
+
+### Business Scheduling
+
+Business-level scheduling is stored in `automation_schedules`.
+
+Safe defaults:
+
+- `enabled = false`
+- `frequency = manual_only`
+- no business is scheduled automatically
+
+Supported frequencies:
+
+- `manual_only`
+- `daily`
+- `weekly`
+
+The Automations page shows:
+
+- schedule mode
+- frequency
+- timezone
+- last scheduled run
+- next scheduled run
+- last scheduler status
+
+Owners/managers can enable daily checks or pause the schedule from the Automations page. These controls only affect scheduler eligibility; they do not send messages.
+
+### Scheduler Request Examples
+
+Provider-neutral production dry-run:
+
+```http
+POST https://YOUR_DOMAIN/api/automations/scheduled-run
+Authorization: Bearer $AUTOMATION_RUN_SECRET
+Content-Type: application/json
+
+{
+  "dryRun": true,
+  "limit": 10
+}
+```
+
+Confirmed pending-action creation:
+
+```http
+POST https://YOUR_DOMAIN/api/automations/scheduled-run
+Authorization: Bearer $AUTOMATION_RUN_SECRET
+Content-Type: application/json
+
+{
+  "dryRun": false,
+  "confirmRun": true,
+  "limit": 10
+}
+```
+
+Single-business targeted scheduled run:
+
+```http
+POST https://YOUR_DOMAIN/api/automations/scheduled-run
+Authorization: Bearer $AUTOMATION_RUN_SECRET
+Content-Type: application/json
+
+{
+  "businessId": "BUSINESS_ID",
+  "dryRun": false,
+  "confirmRun": true
+}
+```
+
+### Scheduler Response
+
+The scheduler returns a per-business summary:
+
+```json
+{
+  "success": true,
+  "dryRun": true,
+  "scheduledRun": true,
+  "businessesEvaluated": 3,
+  "businessesRun": 3,
+  "businessesFailed": 0,
+  "totalEvaluated": 30,
+  "totalEligible": 4,
+  "totalActionsCreated": 0,
+  "totalDuplicatesPrevented": 0,
+  "providerSendsAllowed": false,
+  "providerSendsBlocked": true,
+  "results": []
+}
+```
+
+### Safety Boundaries
+
+- Dry-runs create no actions.
+- Confirmed scheduled runs create pending `automation_actions` only.
+- Cron never sends SMS.
+- Cron never sends email.
+- Cron never sends review requests.
+- `/api/automations/scheduled-run` rejects `allowProviderSends:true`.
+- Operators still approve and send one pending action manually.
+- No browser code should call the scheduler endpoint with a secret.
+
+### Audit Logging
+
+Scheduler runs write business-scoped audit entries:
+
+- `automation_scheduler.business_completed`
+- `automation_scheduler.business_failed`
+
+Metadata includes totals, dry-run/confirmed mode, route, duration, provider-send blocked status, and sanitized errors. It must not include secrets, headers, provider credentials, or customer payloads.
+
+### Phase 6F Smoke Tests
+
+Missing secret:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/scheduled-run" `
+  -Method POST `
+  -ContentType "application/json" `
+  -Body '{}'
+```
+
+Expected: `401`.
+
+Invalid secret:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/scheduled-run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer wrong-secret" } `
+  -ContentType "application/json" `
+  -Body '{"dryRun":true}'
+```
+
+Expected: `401`.
+
+Dry-run scheduled endpoint:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/scheduled-run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"dryRun":true,"limit":10}'
+```
+
+Expected:
+
+- `200`
+- `providerSendsAllowed:false`
+- `providerSendsBlocked:true`
+- `totalActionsCreated:0`
+
+Confirmed scheduled run:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/scheduled-run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"dryRun":false,"confirmRun":true,"limit":10}'
+```
+
+Expected:
+
+- `200`
+- pending actions created only for eligible scheduled businesses/candidates
+- no provider sends
+
+Confirmed without `confirmRun`:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/scheduled-run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"dryRun":false}'
+```
+
+Expected: `400`.
+
+Provider sends requested:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/scheduled-run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"dryRun":true,"allowProviderSends":true}'
+```
+
+Expected:
+
+- `400`
+- no provider send occurs
+
+Limit enforcement:
+
+```powershell
+Invoke-WebRequest `
+  -UseBasicParsing `
+  -Uri "http://localhost:3000/api/automations/scheduled-run" `
+  -Method POST `
+  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
+  -ContentType "application/json" `
+  -Body '{"dryRun":true,"limit":999}'
+```
+
+Expected: `400`.
+
+Dashboard check:
+
+- open `/automations`
+- confirm schedule readiness card appears
+- confirm no browser cron trigger exists
+- confirm pending queue and manual approve/send remain unchanged

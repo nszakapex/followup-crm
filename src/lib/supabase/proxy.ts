@@ -42,7 +42,9 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/callback");
   const isReviewRedirectRoute = pathname.startsWith("/r/");
   const isWebhookRoute = pathname.startsWith("/api/webhooks/");
-  const isAutomationRunRoute = pathname === "/api/automations/run";
+  const isAutomationRunRoute =
+    pathname === "/api/automations/run" ||
+    pathname === "/api/automations/scheduled-run";
   const isPublicRoute =
     pathname === "/" ||
     isAuthRoute ||

@@ -7,6 +7,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock,
+  PauseCircle,
   PhoneMissed,
   Send,
   Star,
@@ -16,7 +17,9 @@ import {
 
 import {
   dismissAutomationAction,
+  enableDailyAutomationSchedule,
   markAutomationActionReviewed,
+  pauseAutomationSchedule,
   sendAutomationAction,
 } from "@/app/actions/automations";
 import { AutomationToggle } from "@/components/automations/automation-toggle";
@@ -39,6 +42,7 @@ import {
   getAutomationRunHistory,
   type AutomationRunSummary,
 } from "@/lib/automations/run-history";
+import { getAutomationScheduleForBusiness } from "@/lib/automations/schedule";
 import { createClient } from "@/lib/supabase/server";
 import type { Automation, AutomationType, MessageChannel } from "@/types/database";
 
@@ -148,6 +152,21 @@ function formatSendStatus(action: AutomationActionQueueItem) {
   return null;
 }
 
+function formatFrequency(frequency: string) {
+  if (frequency === "daily") return "Daily";
+  if (frequency === "weekly") return "Weekly";
+  return "Manual only";
+}
+
+function formatScheduleStatus(status: string | null) {
+  if (!status) return "Not recorded";
+  if (status === "completed") return "Completed";
+  if (status === "failed") return "Failed";
+  if (status === "no_enabled_automations") return "No enabled automations";
+  if (status === "no_eligible_businesses") return "No eligible businesses";
+  return status;
+}
+
 function isPotentiallySendable(action: AutomationActionQueueItem) {
   return (
     action.status === "pending_review" &&
@@ -200,13 +219,15 @@ export default async function AutomationsPage() {
     .select("*")
     .eq("business_id", profile.business_id)
     .order("created_at", { ascending: true });
-  const [runHistory, pendingActionsResult, recentActionsResult] = await Promise.all([
+  const [runHistory, scheduleResult, pendingActionsResult, recentActionsResult] = await Promise.all([
     getAutomationRunHistory(supabase, profile.business_id),
+    getAutomationScheduleForBusiness(supabase, profile.business_id),
     listPendingAutomationActions(supabase, profile.business_id),
     listRecentAutomationActions(supabase, profile.business_id),
   ]);
 
   const items = (automations ?? []) as Automation[];
+  const schedule = scheduleResult.schedule;
   const pendingActions = pendingActionsResult.actions;
   const recentActions = recentActionsResult.actions.filter(
     (action) => action.status !== "pending_review"
@@ -218,6 +239,7 @@ export default async function AutomationsPage() {
     (defaultsResult.success ? null : defaultsResult.error) ??
     automationsError?.message ??
     runHistory.error ??
+    scheduleResult.error ??
     pendingActionsResult.error ??
     recentActionsResult.error ??
     null;
@@ -260,6 +282,91 @@ export default async function AutomationsPage() {
           icon={Clock}
         />
       </div>
+
+      <Card>
+        <CardHeader className="gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Scheduled automation readiness</CardTitle>
+              <CardDescription>
+                Cron checks can create pending actions for this business. Provider sends still
+                require manual approval.
+              </CardDescription>
+            </div>
+            <Badge
+              variant="outline"
+              className={
+                schedule.scheduleMode === "scheduled"
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : "border-border/70 bg-background text-muted-foreground"
+              }
+            >
+              {schedule.scheduleMode === "scheduled" ? "Scheduled" : "Manual only"}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {scheduleResult.error ? (
+            <div className="flex gap-3 rounded-lg border border-destructive/25 bg-destructive/5 p-4 text-sm text-destructive">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>{formatError(scheduleResult.error)}</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                {[
+                  ["Mode", schedule.scheduleMode === "scheduled" ? "Scheduled" : "Manual only"],
+                  ["Frequency", formatFrequency(schedule.frequency)],
+                  ["Timezone", schedule.timezone],
+                  ["Last run", formatDateTime(schedule.lastRunAt)],
+                  ["Next run", formatDateTime(schedule.nextRunAt)],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-lg border border-border/60 p-3">
+                    <p className="text-[0.68rem] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                      {label}
+                    </p>
+                    <p className="mt-2 text-sm font-medium text-foreground">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-4">
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    Last scheduler status: {formatScheduleStatus(schedule.lastStatus)}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    The scheduler endpoint is server-only. It creates pending queue actions,
+                    never customer communications.
+                  </p>
+                  {schedule.lastError && (
+                    <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                      {schedule.lastError}
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {schedule.scheduleMode === "scheduled" ? (
+                    <form action={pauseAutomationSchedule}>
+                      <Button type="submit" size="sm" variant="outline">
+                        <PauseCircle className="h-3.5 w-3.5" />
+                        Pause schedule
+                      </Button>
+                    </form>
+                  ) : (
+                    <form action={enableDailyAutomationSchedule}>
+                      <Button type="submit" size="sm" variant="outline">
+                        <CalendarDays className="h-3.5 w-3.5" />
+                        Enable daily checks
+                      </Button>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Card className={runToneClasses[getRunTone(runHistory.latest)]}>
         <CardHeader className="gap-3">

@@ -7,6 +7,7 @@ import {
   dismissAutomationAction as dismissAutomationActionRecord,
   markAutomationActionReviewed as markAutomationActionRecordReviewed,
 } from "@/lib/automations/action-queue";
+import { upsertAutomationSchedule } from "@/lib/automations/schedule";
 import { sendAutomationAction as sendAutomationActionRecord } from "@/lib/automations/send-action";
 
 type AuthContext =
@@ -298,6 +299,55 @@ export async function sendAutomationAction(actionId: string): Promise<void> {
   if (!result.success) {
     console.error("[automationActions.send] Failed", {
       actionId,
+      businessId: ctx.businessId,
+      error: result.error,
+    });
+  }
+
+  revalidatePath("/automations");
+}
+
+export async function enableDailyAutomationSchedule(): Promise<void> {
+  const ctx = await getAuthContext();
+  if (!ctx.ok) {
+    console.error("[automationSchedule.enable] Auth failed", {
+      error: ctx.reason,
+    });
+    return;
+  }
+
+  const result = await upsertAutomationSchedule(ctx.supabase, ctx.businessId, {
+    enabled: true,
+    frequency: "daily",
+    preferredHour: 9,
+  });
+
+  if (!result.success) {
+    console.error("[automationSchedule.enable] Failed", {
+      businessId: ctx.businessId,
+      error: result.error,
+    });
+  }
+
+  revalidatePath("/automations");
+}
+
+export async function pauseAutomationSchedule(): Promise<void> {
+  const ctx = await getAuthContext();
+  if (!ctx.ok) {
+    console.error("[automationSchedule.pause] Auth failed", {
+      error: ctx.reason,
+    });
+    return;
+  }
+
+  const result = await upsertAutomationSchedule(ctx.supabase, ctx.businessId, {
+    enabled: false,
+    frequency: "manual_only",
+  });
+
+  if (!result.success) {
+    console.error("[automationSchedule.pause] Failed", {
       businessId: ctx.businessId,
       error: result.error,
     });

@@ -63,6 +63,12 @@ export type AutomationActionSendStatus =
   | "failed"
   | "blocked"
   | "skipped";
+export type AutomationScheduleFrequency = "manual_only" | "daily" | "weekly";
+export type AutomationScheduleStatus =
+  | "completed"
+  | "failed"
+  | "no_enabled_automations"
+  | "no_eligible_businesses";
 
 export interface Business {
   id: string;
@@ -183,6 +189,21 @@ export interface AutomationActionRecord {
   provider_message_id: string | null;
   provider_response_json: Record<string, unknown> | null;
   send_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationSchedule {
+  id: string;
+  business_id: string;
+  enabled: boolean;
+  frequency: AutomationScheduleFrequency;
+  timezone: string;
+  preferred_hour: number | null;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_status: AutomationScheduleStatus | null;
+  last_error: string | null;
   created_at: string;
   updated_at: string;
 }
