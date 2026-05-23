@@ -169,3 +169,59 @@ Rules:
 Current UI copy directs operators to create a new manual request after fixing setup instead of retrying in place. This avoids overwriting lifecycle history or adding an unsafe retry path without a linked retry-attempt model.
 
 Phase 7D still does not add automatic sending, cron sending, send-all behavior, bulk messaging, browser secret exposure, or provider credential exposure.
+
+## Phase 7E Manual Send Preflight
+
+Phase 7E is the final Phase 7 hardening pass. It adds server-side provider readiness and manual-send preflight checks before an operator submits a manual review request or manually approves a pending automation action.
+
+Preflight checks are read-only. They do not send messages, create review requests, mutate automation actions, call Twilio, call Resend, or bypass duplicate prevention.
+
+Preflight evaluates:
+
+- business scope
+- customer/lead scope
+- selected channel
+- destination availability
+- SMS opt-out state
+- Google review link setup
+- provider readiness
+- current send mode: live, test, skip, or blocked
+- duplicate-prevention risk
+- automation action ownership when approving a queued action
+
+Provider readiness is server-side only. The UI receives safe labels, booleans, warnings, and reasons. It never receives provider secrets, API keys, auth tokens, or raw environment variable values.
+
+### Live Confirmation
+
+Live manual sends require explicit operator confirmation.
+
+Live confirmation copy states:
+
+- this will attempt a real provider message
+- selected channel
+- safe destination summary
+- provider label
+- business context
+- duplicate-prevention status
+- the action is manual and recorded in review request history
+
+Test and skip modes do not imply a live send. Their button and explanation copy state that no live provider message will be sent.
+
+### Retry Remains Deferred
+
+Manual retry sending remains deferred. Phase 7E does not add a retry button because safe retry should preserve attempt lineage, such as `previous_review_request_id` or an attempt-history table. A future Phase 8+ retry model must create new linked attempts or otherwise preserve lifecycle history without overwriting prior blocked/failed outcomes.
+
+### Safety Boundaries
+
+Phase 7E does not add:
+
+- automatic sending
+- cron provider sending
+- scheduled provider sending
+- send-all behavior
+- bulk messaging
+- batch review sends
+- browser-side provider calls
+- provider secret exposure
+
+The protected automation runner and scheduler still reject provider sends.

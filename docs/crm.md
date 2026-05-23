@@ -40,6 +40,8 @@ Blocked and failed events include safe human-readable reasons. Duplicate-prevent
 
 Phase 7D uses the shared review request lifecycle display helper so the contact detail page uses the same wording as `/reviews`. The review history now shows whether anything was sent, safe destination/provider context, lifecycle reason, and the next operator action. Retry guidance is informational only; no retry send button is added from the detail page.
 
+Phase 7E adds manual send preflight visibility to lead detail pending automation actions. When a pending review-request action is shown, the page displays whether the approval would be live, test, skip, or blocked before the operator clicks. Live approval uses an explicit confirmation prompt and remains one action at a time.
+
 ## Pending automation action controls
 
 The detail page reuses the existing automation action server actions:

@@ -50,6 +50,8 @@ Blocked review requests are recorded with a safe reason and no provider call. Fa
 
 Phase 7D keeps retry guidance operator-only. The app explains what to fix, but it does not add automatic retries, cron retries, send-all behavior, or browser-side provider sends.
 
+Phase 7E adds final manual-send readiness guardrails. Setup and settings show safe send mode/readiness without exposing secrets. Manual live sends require an explicit operator action and confirmation. Preflight helpers do not send messages; the Phase 7C server send helper remains authoritative when a request is submitted.
+
 ### SMS Readiness
 
 SMS readiness is determined server-side from safe booleans only.

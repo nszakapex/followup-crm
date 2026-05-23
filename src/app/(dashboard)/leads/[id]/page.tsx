@@ -10,7 +10,6 @@ import {
   Mail,
   MessageSquare,
   Phone,
-  Send,
   ShieldAlert,
   Sparkles,
   Star,
@@ -24,6 +23,7 @@ import {
 } from "@/app/actions/automations";
 import { AddNoteForm } from "@/components/leads/add-note-form";
 import { LeadStatusActions } from "@/components/leads/lead-status-actions";
+import { ManualSendSubmitButton } from "@/components/reviews/manual-send-submit-button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +38,7 @@ import {
   getReviewRequestRetryEligibility,
   getSafeReviewRequestDestination,
 } from "@/lib/reviews/lifecycle";
+import { getManualReviewSendPreflight } from "@/lib/reviews/send-preflight";
 import { createClient } from "@/lib/supabase/server";
 import type { AutomationActionRecord, LeadStatus, Message, ReviewRequest } from "@/types/database";
 
@@ -210,6 +211,27 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
   const latestReviewLifecycle = reviewRequests[0]
     ? getReviewRequestLifecycle(reviewRequests[0])
     : null;
+  const pendingPreflightEntries = await Promise.all(
+    pendingAutomationActions
+      .filter(
+        (action) =>
+          action.action_type === "review_request" &&
+          action.lead_id &&
+          (action.channel === "sms" || action.channel === "email")
+      )
+      .map(async (action) => {
+        const preflight = await getManualReviewSendPreflight(supabase, {
+          businessId: profile.business_id,
+          leadId: action.lead_id!,
+          channel: action.channel as "sms" | "email",
+          source: "automation_action_manual",
+          automationActionId: action.id,
+        });
+
+        return [action.id, preflight] as const;
+      })
+  );
+  const preflightByActionId = new Map(pendingPreflightEntries);
 
   return (
     <div className="space-y-8">
@@ -360,6 +382,27 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                         </div>
                       )}
 
+                      {preflightByActionId.get(action.id) && (
+                        <div className="mt-4 rounded-lg border border-border/70 bg-muted/20 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-medium text-foreground">
+                              {preflightByActionId.get(action.id)?.confirmationTitle}
+                            </p>
+                            <Badge variant="outline" className="border-border/70 bg-background">
+                              {preflightByActionId.get(action.id)?.mode}
+                            </Badge>
+                          </div>
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                            {preflightByActionId.get(action.id)?.confirmationBody}
+                          </p>
+                          {preflightByActionId.get(action.id)?.blockingIssues.length ? (
+                            <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                              {preflightByActionId.get(action.id)?.blockingIssues[0]}
+                            </p>
+                          ) : null}
+                        </div>
+                      )}
+
                       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                         <p className="max-w-full truncate text-xs text-muted-foreground">
                           Dedupe protected: {action.dedupe_key}
@@ -367,10 +410,22 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                         <div className="flex flex-wrap gap-2">
                           {isPotentiallySendable(action) && (
                             <form action={sendAutomationAction.bind(null, action.id)}>
-                              <Button type="submit" size="sm">
-                                <Send className="h-3.5 w-3.5" />
-                                Approve & send
-                              </Button>
+                              <ManualSendSubmitButton
+                                mode={preflightByActionId.get(action.id)?.mode ?? null}
+                                label={
+                                  preflightByActionId.get(action.id)?.mode === "live"
+                                    ? "Approve & send live"
+                                    : "Approve & send"
+                                }
+                                confirmationTitle={
+                                  preflightByActionId.get(action.id)?.confirmationTitle ??
+                                  "Approve automation action?"
+                                }
+                                confirmationBody={
+                                  preflightByActionId.get(action.id)?.confirmationBody ??
+                                  "This will process one automation action."
+                                }
+                              />
                             </form>
                           )}
                           <form action={markAutomationActionReviewed.bind(null, action.id)}>

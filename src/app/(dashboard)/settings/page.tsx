@@ -15,6 +15,7 @@ import {
   getSmsProviderReadiness,
   shouldSkipReviewDelivery,
 } from "@/lib/messaging/provider-config";
+import { getReviewProviderReadiness } from "@/lib/reviews/provider-readiness";
 import { createClient } from "@/lib/supabase/server";
 import type { Automation, BrandVoice, Business, Lead, ReviewRequest } from "@/types/database";
 
@@ -92,6 +93,19 @@ export default async function SettingsPage() {
     leadsError?.message ?? reviewRequestsError?.message ?? automationsError?.message ?? null;
   const smsReadiness = getSmsProviderReadiness(biz.twilio_from_number);
   const emailReadiness = getEmailProviderReadiness(biz.resend_from_email);
+  const smsManualReadiness = getReviewProviderReadiness({
+    business: biz,
+    channel: "sms",
+    codePath: "direct_manual",
+  });
+  const emailManualReadiness = getReviewProviderReadiness({
+    business: biz,
+    channel: "email",
+    codePath: "direct_manual",
+  });
+  const preferredManualReadiness = smsManualReadiness.ready
+    ? smsManualReadiness
+    : emailManualReadiness;
   const deliverySkipped = shouldSkipReviewDelivery();
   const deliveryModeLabel = getDeliveryModeLabel();
   const providerLabels = [
@@ -276,6 +290,15 @@ export default async function SettingsPage() {
                 <Badge variant={deliverySkipped ? "outline" : "secondary"}>
                   {deliveryModeLabel}
                 </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Manual send mode</span>
+                <Badge variant="outline">
+                  {preferredManualReadiness.mode}
+                </Badge>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+                {preferredManualReadiness.userFacingExplanation}
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">SMS compliance</span>

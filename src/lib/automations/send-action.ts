@@ -3,13 +3,9 @@ import "server-only";
 import type { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/messaging/send-email";
-import {
-  getEmailProviderReadiness,
-  getSmsProviderReadiness,
-  shouldSkipReviewDelivery,
-} from "@/lib/messaging/provider-config";
 import { sendSms } from "@/lib/messaging/send-sms";
 import type { DeliveryResult } from "@/lib/messaging/types";
+import { getReviewProviderReadiness } from "@/lib/reviews/provider-readiness";
 import { sendReviewRequest } from "@/lib/reviews/send-review-request";
 import type {
   AutomationActionRecord,
@@ -214,29 +210,22 @@ function getReadiness(
   action: SendableAction,
   business: SendBusiness
 ): ProviderReadinessSummary {
-  if (shouldSkipReviewDelivery()) {
-    return { configured: true, skipped: true, reason: "Delivery skipped in test mode." };
+  if (action.channel !== "sms" && action.channel !== "email") {
+    return { configured: false, skipped: false, reason: "Automation action channel is required." };
   }
 
-  if (action.channel === "sms") {
-    const readiness = getSmsProviderReadiness(business.twilio_from_number);
-    return {
-      configured: readiness.configured,
-      skipped: false,
-      reason: readiness.reason,
-    };
-  }
+  const readiness = getReviewProviderReadiness({
+    business,
+    channel: action.channel,
+    codePath: "automation_action_manual",
+    requireReviewLink: action.action_type === "review_request",
+  });
 
-  if (action.channel === "email") {
-    const readiness = getEmailProviderReadiness(business.resend_from_email);
-    return {
-      configured: readiness.configured,
-      skipped: false,
-      reason: readiness.reason,
-    };
-  }
-
-  return { configured: false, skipped: false, reason: "Automation action channel is required." };
+  return {
+    configured: readiness.ready,
+    skipped: readiness.mode === "test" || readiness.mode === "skip",
+    reason: readiness.ready ? readiness.safeReason : readiness.userFacingExplanation,
+  };
 }
 
 async function claimAction(

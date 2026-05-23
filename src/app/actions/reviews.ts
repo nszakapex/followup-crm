@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getManualReviewSendPreflight } from "@/lib/reviews/send-preflight";
 import { sendReviewRequest } from "@/lib/reviews/send-review-request";
 import { revalidatePath } from "next/cache";
 
@@ -37,6 +38,49 @@ function getDatabaseError(action: string, message: string) {
 
 function isManualReviewChannel(value: FormDataEntryValue | null): value is ManualReviewChannel {
   return value === "sms" || value === "email";
+}
+
+export async function getManualReviewRequestPreflight(formData: FormData) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false as const, error: "Not authenticated." };
+  }
+
+  const leadId = formData.get("lead_id");
+  const channel = formData.get("channel");
+
+  if (typeof leadId !== "string" || !leadId) {
+    return { success: false as const, error: "Choose a customer first." };
+  }
+
+  if (!isManualReviewChannel(channel)) {
+    return { success: false as const, error: "Review request channel is required." };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("users")
+    .select("business_id")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileError || !profile?.business_id) {
+    return { success: false as const, error: "User is not connected to a business." };
+  }
+
+  const preflight = await getManualReviewSendPreflight(supabase, {
+    businessId: profile.business_id,
+    leadId,
+    channel,
+    source: "direct_manual",
+  });
+
+  return { success: true as const, preflight };
 }
 
 export async function sendManualReviewRequest(formData: FormData) {

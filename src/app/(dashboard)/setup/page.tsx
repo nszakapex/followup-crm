@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { getBusinessReadiness } from "@/lib/onboarding/readiness";
+import { getReviewProviderReadiness } from "@/lib/reviews/provider-readiness";
 import { createClient } from "@/lib/supabase/server";
 import type { BrandVoice, Business } from "@/types/database";
 
@@ -172,6 +173,19 @@ export default async function SetupPage() {
     readiness.dataSetup.hasTestableRecipient;
   const providerReady =
     readiness.smsProvider.canSend || readiness.emailProvider.canSend;
+  const smsManualReadiness = getReviewProviderReadiness({
+    business: biz,
+    channel: "sms",
+    codePath: "direct_manual",
+  });
+  const emailManualReadiness = getReviewProviderReadiness({
+    business: biz,
+    channel: "email",
+    codePath: "direct_manual",
+  });
+  const preferredManualReadiness = smsManualReadiness.ready
+    ? smsManualReadiness
+    : emailManualReadiness;
 
   return (
     <div className="space-y-8">
@@ -295,6 +309,14 @@ export default async function SetupPage() {
                 ["Google review link", readiness.reviewSetup.googleReviewLinkConfigured ? "Ready" : "Missing"],
                 ["SMS delivery", readiness.smsProvider.canSend ? "Ready" : "Blocked"],
                 ["Email delivery", readiness.emailProvider.canSend ? "Ready" : "Blocked"],
+                ["Current send mode", preferredManualReadiness.mode],
+                [
+                  "Manual live sending",
+                  smsManualReadiness.canAttemptProviderSend ||
+                  emailManualReadiness.canAttemptProviderSend
+                    ? "Available after confirmation"
+                    : "Unavailable",
+                ],
                 ["Manual approval", "Required"],
                 ["Cron delivery", "Disabled"],
               ].map(([label, value]) => (
@@ -304,8 +326,9 @@ export default async function SetupPage() {
                 </div>
               ))}
               <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
-                Scheduled checks create pending actions only. Operators manually approve one
-                action at a time before any provider helper can run.
+                {preferredManualReadiness.userFacingExplanation} Scheduled checks create
+                pending actions only. Operators manually approve one action at a time before
+                any provider helper can run.
               </div>
             </CardContent>
           </Card>

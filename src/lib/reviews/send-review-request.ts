@@ -3,14 +3,11 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
 import { sendEmail } from "@/lib/messaging/send-email";
-import {
-  getEmailProviderReadiness,
-  getSmsProviderReadiness,
-  shouldSkipReviewDelivery,
-} from "@/lib/messaging/provider-config";
+import { shouldSkipReviewDelivery } from "@/lib/messaging/provider-config";
 import { renderTemplate } from "@/lib/messaging/render-template";
 import { sendSms } from "@/lib/messaging/send-sms";
 import type { DeliveryResult } from "@/lib/messaging/types";
+import { getReviewProviderReadiness } from "@/lib/reviews/provider-readiness";
 
 type ReviewRequestOutcome =
   | "sent"
@@ -78,6 +75,7 @@ export type SendReviewRequestResult =
 
 type ServiceClient = ReturnType<typeof createServiceClient>;
 type BusinessRow = {
+  id: string;
   name: string;
   google_review_link: string | null;
   twilio_from_number: string | null;
@@ -550,7 +548,7 @@ export async function sendReviewRequest(
   const supabase = createServiceClient(supabaseUrl, serviceRoleKey);
   const { data: business, error: businessError } = await supabase
     .from("businesses")
-    .select("name, google_review_link, twilio_from_number, resend_from_email")
+    .select("id, name, google_review_link, twilio_from_number, resend_from_email")
     .eq("id", businessId)
     .maybeSingle();
 
@@ -740,18 +738,19 @@ export async function sendReviewRequest(
   }
 
   if (!shouldSkipReviewDelivery()) {
-    const readiness =
-      channel === "sms"
-        ? getSmsProviderReadiness(businessRow.twilio_from_number)
-        : getEmailProviderReadiness(businessRow.resend_from_email);
+    const readiness = getReviewProviderReadiness({
+      business: businessRow,
+      channel,
+      codePath: source === "automation_action" ? "automation_action_manual" : "direct_manual",
+    });
 
-    if (!readiness.configured) {
+    if (!readiness.canAttemptProviderSend) {
       return createBlockedRequest(supabase, {
         ...blockParams,
         reason:
           channel === "sms"
-            ? "SMS provider is not configured."
-            : "Email provider is not configured.",
+            ? readiness.safeReason || "SMS provider is not configured."
+            : readiness.safeReason || "Email provider is not configured.",
       });
     }
   }

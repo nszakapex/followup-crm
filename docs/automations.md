@@ -641,6 +641,14 @@ Phase 7D adds clearer lifecycle inspection after those manual sends. Blocked, fa
 
 Retry controls are not added to automation or cron flows. Any future retry must remain a manual operator action and must re-run provider readiness and duplicate-prevention checks.
 
+## Phase 7E Manual Approval Preflight
+
+Phase 7E adds preflight visibility before an operator manually approves a pending review-request action.
+
+The preflight check is server-side and read-only. It checks business scope, lead scope, action ownership, channel, destination, review link, provider readiness, current delivery mode, and duplicate risk. It does not call providers and does not create records.
+
+If the action is live-send ready, the operator must confirm the live send before the form submits. Scheduled automation routes still cannot send provider messages and still reject `allowProviderSends:true`.
+
 ## Phase 6F Production Cron Scheduling
 
 Phase 6F adds a scheduler-oriented endpoint and business-level scheduling settings. The scheduler creates reviewable work only. It does not send SMS, email, or review requests.
