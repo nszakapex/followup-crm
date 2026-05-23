@@ -72,3 +72,76 @@ Confirmed actions update:
 - `automations.trigger_count`
 
 Dry-runs, skipped actions, duplicate skips, and failed actions do not increment counters.
+
+## API Trigger
+
+Phase 6B adds a secure API trigger for server-side or future scheduler use:
+
+```text
+POST /api/automations/run
+```
+
+The route is single-business only. It requires `businessId` and never runs across all businesses.
+
+Authentication uses a server-only secret:
+
+```bash
+Authorization: Bearer <AUTOMATION_RUN_SECRET>
+```
+
+or:
+
+```bash
+x-automation-secret: <AUTOMATION_RUN_SECRET>
+```
+
+`CRON_SECRET` is also accepted as a fallback if `AUTOMATION_RUN_SECRET` is not set. Do not prefix either value with `NEXT_PUBLIC_`.
+
+Dry-run request:
+
+```bash
+curl -X POST "https://your-app.example.com/api/automations/run" \
+  -H "Authorization: Bearer <AUTOMATION_RUN_SECRET>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "businessId": "<uuid>",
+    "dryRun": true,
+    "limit": 50
+  }'
+```
+
+Confirmed internal/test execution:
+
+```bash
+curl -X POST "https://your-app.example.com/api/automations/run" \
+  -H "Authorization: Bearer <AUTOMATION_RUN_SECRET>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "businessId": "<uuid>",
+    "dryRun": false,
+    "confirmRun": true,
+    "limit": 50
+  }'
+```
+
+Confirmed execution still does not call Twilio or Resend. It creates only the same internal/test records that the manual runner creates.
+
+Provider sends are disabled from the API route. Requests with `allowProviderSends: true` are rejected with:
+
+```text
+Provider sends are not enabled for scheduled automation runs.
+```
+
+## Future Cron Guidance
+
+The API route is ready for a future scheduler or Vercel Cron-style caller, but this repo does not add an active cron schedule in Phase 6B.
+
+Future cron calls should:
+
+- call `POST /api/automations/run`
+- include `Authorization: Bearer <AUTOMATION_RUN_SECRET>`
+- pass a single `businessId`
+- default to dry-run until confirmed in production
+- keep provider sends disabled
+
+All-business scheduled execution is intentionally deferred.
