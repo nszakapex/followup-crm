@@ -886,3 +886,13 @@ Dashboard check:
 - confirm schedule readiness card appears
 - confirm no browser cron trigger exists
 - confirm pending queue and manual approve/send remain unchanged
+
+## Phase 7A Readiness Link
+
+Business setup and provider readiness now live at:
+
+```text
+/setup
+```
+
+Use this page to confirm business profile, Google review link, provider readiness, lead data, automation readiness, and lead capture status before running confirmed automation checks or manually approving sends.

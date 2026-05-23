@@ -84,6 +84,15 @@ export function BusinessSettingsForm({ business }: { business: Business }) {
           />
         </div>
       </div>
+      <div className="space-y-2">
+        <Label htmlFor="timezone">Timezone</Label>
+        <Input
+          id="timezone"
+          name="timezone"
+          defaultValue={business.timezone || "America/Denver"}
+          placeholder="America/Denver"
+        />
+      </div>
       <Button type="submit" disabled={isPending}>
         {isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
         {isPending ? "Saving..." : "Save changes"}

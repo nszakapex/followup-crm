@@ -16,10 +16,12 @@ import {
   Settings,
   CreditCard,
   ShieldCheck,
+  ClipboardCheck,
 } from "lucide-react";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Setup", href: "/setup", icon: ClipboardCheck },
   { name: "Leads", href: "/leads", icon: Users },
   { name: "Automations", href: "/automations", icon: Zap },
   { name: "Reviews", href: "/reviews", icon: Star },

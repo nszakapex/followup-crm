@@ -29,6 +29,7 @@ import {
   getSmsProviderReadiness,
   shouldSkipReviewDelivery,
 } from "@/lib/messaging/provider-config";
+import { getBusinessReadiness } from "@/lib/onboarding/readiness";
 import { createClient } from "@/lib/supabase/server";
 import type { Automation, Lead, Message, ReviewRequest } from "@/types/database";
 
@@ -184,6 +185,7 @@ export default async function DashboardPage() {
     { data: reviewRequestsData, error: reviewRequestsError },
     { data: automationsData, error: automationsError },
     { data: messagesData, error: messagesError },
+    readiness,
   ] = await Promise.all([
     supabase
       .from("businesses")
@@ -215,6 +217,7 @@ export default async function DashboardPage() {
       .eq("business_id", businessId)
       .order("created_at", { ascending: false })
       .limit(20),
+    getBusinessReadiness(supabase, businessId),
   ]);
 
   const queryErrors = [
@@ -223,6 +226,7 @@ export default async function DashboardPage() {
     reviewRequestsError,
     automationsError,
     messagesError,
+    readiness.errors.length > 0 ? { message: readiness.errors[0] } : null,
   ].filter(Boolean);
   const pageError = queryErrors[0]?.message;
 
@@ -488,6 +492,10 @@ export default async function DashboardPage() {
                 Demo data
               </Badge>
             )}
+            <Button variant="outline" render={<Link href="/setup" />}>
+              Setup
+              <ArrowRight className="h-4 w-4" />
+            </Button>
             <AddLeadDialog />
           </>
         }
@@ -500,6 +508,24 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      <Card className="border-border/70 bg-muted/20">
+        <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+          <div>
+            <p className="text-sm font-medium text-foreground">
+              Setup readiness: {readiness.overall.score}/{readiness.overall.total} complete
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              Next: {readiness.overall.nextBestAction}. Provider secrets are checked
+              server-side and never shown.
+            </p>
+          </div>
+          <Button variant="outline" render={<Link href="/setup" />}>
+            Open setup
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card className="bg-foreground text-background">
         <CardContent className="grid gap-6 p-6 md:grid-cols-[1.3fr_0.7fr] md:items-end">

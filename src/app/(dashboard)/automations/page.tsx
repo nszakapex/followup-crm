@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import {
   AlertCircle,
   AlertTriangle,
+  ArrowRight,
   BarChart3,
   CalendarDays,
   CheckCircle2,
@@ -43,6 +44,7 @@ import {
   type AutomationRunSummary,
 } from "@/lib/automations/run-history";
 import { getAutomationScheduleForBusiness } from "@/lib/automations/schedule";
+import { getBusinessReadiness } from "@/lib/onboarding/readiness";
 import { createClient } from "@/lib/supabase/server";
 import type { Automation, AutomationType, MessageChannel } from "@/types/database";
 
@@ -219,9 +221,16 @@ export default async function AutomationsPage() {
     .select("*")
     .eq("business_id", profile.business_id)
     .order("created_at", { ascending: true });
-  const [runHistory, scheduleResult, pendingActionsResult, recentActionsResult] = await Promise.all([
+  const [
+    runHistory,
+    scheduleResult,
+    readiness,
+    pendingActionsResult,
+    recentActionsResult,
+  ] = await Promise.all([
     getAutomationRunHistory(supabase, profile.business_id),
     getAutomationScheduleForBusiness(supabase, profile.business_id),
+    getBusinessReadiness(supabase, profile.business_id),
     listPendingAutomationActions(supabase, profile.business_id),
     listRecentAutomationActions(supabase, profile.business_id),
   ]);
@@ -240,6 +249,7 @@ export default async function AutomationsPage() {
     automationsError?.message ??
     runHistory.error ??
     scheduleResult.error ??
+    (readiness.errors.length > 0 ? readiness.errors[0] : null) ??
     pendingActionsResult.error ??
     recentActionsResult.error ??
     null;
@@ -257,6 +267,28 @@ export default async function AutomationsPage() {
           <CardContent className="flex gap-3 py-4 text-sm text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <p>{formatError(pageError)}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {readiness.overall.status !== "ready" && (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                Setup is {readiness.overall.score}/{readiness.overall.total} complete
+              </p>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                Automations can create pending actions, but sending may be blocked until setup is complete.
+                {readiness.overall.criticalMissing.length > 0
+                  ? ` Missing: ${readiness.overall.criticalMissing.slice(0, 3).join(", ")}.`
+                  : ""}
+              </p>
+            </div>
+            <Button variant="outline" render={<Link href="/setup" />}>
+              Open setup
+              <ArrowRight className="h-4 w-4" />
+            </Button>
           </CardContent>
         </Card>
       )}
