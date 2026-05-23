@@ -1,0 +1,596 @@
+import { createClient } from "@supabase/supabase-js";
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PROGRESSED_STATUSES = new Set(["booked", "completed", "review_requested", "lost"]);
+const LEAD_SELECT =
+  "id, first_name, last_name, phone, email, source, status, notes, opted_out, created_at, last_contacted_at";
+const AUTOMATION_SELECT =
+  "id, business_id, name, type, enabled, delay_hours, trigger_status, message_template, channel, last_triggered_at, trigger_count";
+const BUSINESS_SELECT =
+  "id, name, owner_email, google_review_link, twilio_from_number, resend_from_email";
+
+function isDevelopment() {
+  return process.env.NODE_ENV !== "production";
+}
+
+function getDatabaseError(action, message) {
+  return isDevelopment() ? `${action}: ${message}` : action;
+}
+
+function createServiceClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error("Missing Supabase URL or service role key.");
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+function isTruthy(value) {
+  return ["1", "true", "yes", "on"].includes((value || "").toLowerCase());
+}
+
+function isExplicitlyFalse(value) {
+  return ["0", "false", "no", "off"].includes((value || "").toLowerCase());
+}
+
+function shouldSkipDelivery() {
+  if (isTruthy(process.env.REVIEW_REQUEST_TEST_MODE)) return true;
+  if (isTruthy(process.env.REVIEW_REQUEST_SKIP_DELIVERY)) return true;
+
+  return (
+    process.env.NODE_ENV !== "production" &&
+    !isExplicitlyFalse(process.env.REVIEW_REQUEST_TEST_MODE) &&
+    !isExplicitlyFalse(process.env.REVIEW_REQUEST_SKIP_DELIVERY)
+  );
+}
+
+function getSmsReadiness(business) {
+  const accountConfigured = Boolean(
+    process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
+  );
+  const senderConfigured = Boolean(
+    process.env.TWILIO_MESSAGING_SERVICE_SID ||
+      business.twilio_from_number ||
+      process.env.TWILIO_FROM_NUMBER ||
+      process.env.TWILIO_PHONE_NUMBER
+  );
+
+  return {
+    configured: accountConfigured && senderConfigured,
+    reason: !accountConfigured
+      ? "SMS provider is not configured."
+      : !senderConfigured
+        ? "SMS sender is not configured."
+        : null,
+  };
+}
+
+function getEmailReadiness(business) {
+  const configured = Boolean(
+    process.env.RESEND_API_KEY && (business.resend_from_email || process.env.RESEND_FROM_EMAIL)
+  );
+
+  return {
+    configured,
+    reason: configured ? null : "Email provider is not configured.",
+  };
+}
+
+function renderTemplate(template, business, lead) {
+  const values = {
+    first_name: lead.first_name || "",
+    last_name: lead.last_name || "",
+    business_name: business.name || "",
+    google_review_link: business.google_review_link || "",
+  };
+
+  return template.replace(
+    /\{\{\s*(first_name|last_name|business_name|google_review_link)\s*\}\}/g,
+    (_, key) => values[key] || ""
+  );
+}
+
+function isOldEnough(automation, lead, now) {
+  const delayHours = Number(automation.delay_hours || 0);
+  if (delayHours <= 0) return true;
+
+  const anchor =
+    automation.type === "twenty_four_hour_followup" ||
+    automation.type === "three_day_followup"
+      ? lead.last_contacted_at || lead.created_at
+      : lead.created_at;
+  const anchorDate = new Date(anchor);
+  const ageMs = now.getTime() - anchorDate.getTime();
+
+  return ageMs >= delayHours * 60 * 60 * 1000;
+}
+
+function leadMatchesAutomation(automation, lead, business, now) {
+  if (automation.type === "weekly_owner_summary") {
+    return { eligible: false, reason: "Weekly owner summaries are evaluation-only in this phase." };
+  }
+
+  if (automation.type === "review_request") {
+    if (lead.status !== "completed") {
+      return { eligible: false, reason: "Lead is not completed." };
+    }
+    if (!business.google_review_link) {
+      return { eligible: false, reason: "Review link is not configured." };
+    }
+    if (!isOldEnough(automation, lead, now)) {
+      return { eligible: false, reason: "Lead has not reached the automation delay yet." };
+    }
+    return { eligible: true, action: "create_review_request" };
+  }
+
+  if (automation.type === "missed_call_textback") {
+    const haystack = `${lead.source || ""} ${lead.notes || ""}`.toLowerCase();
+    if (lead.status !== "new" || !haystack.includes("missed")) {
+      return { eligible: false, reason: "Lead is not a missed-call new lead." };
+    }
+    if (!isOldEnough(automation, lead, now)) {
+      return { eligible: false, reason: "Lead has not reached the automation delay yet." };
+    }
+    return { eligible: true, action: "send_message" };
+  }
+
+  if (automation.trigger_status && lead.status !== automation.trigger_status) {
+    return { eligible: false, reason: `Lead status is ${lead.status}, not ${automation.trigger_status}.` };
+  }
+
+  if (PROGRESSED_STATUSES.has(lead.status)) {
+    return { eligible: false, reason: "Lead is already progressed or closed." };
+  }
+
+  if (!isOldEnough(automation, lead, now)) {
+    return { eligible: false, reason: "Lead has not reached the automation delay yet." };
+  }
+
+  return { eligible: true, action: "send_message" };
+}
+
+function validateContact(automation, lead) {
+  if (automation.channel === "sms") {
+    if (lead.opted_out) return "This customer has opted out.";
+    if (!lead.phone) return "Customer phone number is required.";
+  }
+
+  if (automation.channel === "email" && !lead.email) {
+    return "Customer email is required.";
+  }
+
+  if (automation.channel !== "sms" && automation.channel !== "email") {
+    return "Unsupported automation channel.";
+  }
+
+  return null;
+}
+
+function getActionKey(automation, lead) {
+  return `automation:${automation.type}:lead:${lead.id}`;
+}
+
+async function hasDuplicateAction(supabase, businessId, actionKey) {
+  const { data, error } = await supabase
+    .from("audit_logs")
+    .select("id")
+    .eq("business_id", businessId)
+    .eq("action", "automation.action_created")
+    .contains("metadata_json", { action_key: actionKey })
+    .limit(1);
+
+  if (error) return { duplicate: false, error };
+
+  return { duplicate: Boolean(data && data.length > 0), error: null };
+}
+
+async function logAutomationEvent(supabase, params) {
+  const { error } = await supabase.from("audit_logs").insert({
+    business_id: params.businessId,
+    user_id: null,
+    action: params.action,
+    entity_type: params.entityType,
+    entity_id: params.entityId,
+    metadata_json: params.metadata,
+  });
+
+  return error;
+}
+
+async function createMessageAction(supabase, business, automation, lead, body) {
+  const { data, error } = await supabase
+    .from("messages")
+    .insert({
+      business_id: business.id,
+      lead_id: lead.id,
+      channel: automation.channel,
+      direction: "outbound",
+      body,
+      status: "pending",
+      provider: "automation_test",
+      provider_message_id: null,
+      error_message: "Automation action created without provider delivery.",
+      sent_at: null,
+    })
+    .select("id")
+    .single();
+
+  return { id: data && data.id, error };
+}
+
+async function createReviewRequestAction(supabase, business, automation, lead, body) {
+  const customerName = `${lead.first_name} ${lead.last_name || ""}`.trim();
+  const { data, error } = await supabase
+    .from("review_requests")
+    .insert({
+      business_id: business.id,
+      lead_id: lead.id,
+      customer_name: customerName || "Customer",
+      phone: lead.phone || null,
+      email: lead.email || null,
+      channel: automation.channel,
+      message_body: body,
+      status: "pending",
+    })
+    .select("id")
+    .single();
+
+  return { id: data && data.id, error };
+}
+
+async function incrementAutomationCounters(supabase, automation, count, nowIso) {
+  const { error } = await supabase
+    .from("automations")
+    .update({
+      last_triggered_at: nowIso,
+      trigger_count: Number(automation.trigger_count || 0) + count,
+    })
+    .eq("id", automation.id)
+    .eq("business_id", automation.business_id);
+
+  return error;
+}
+
+function makeResult(automation, lead, action, reason, duplicatePrevented) {
+  return {
+    automationId: automation.id,
+    automationType: automation.type,
+    entityType: "lead",
+    entityId: lead.id,
+    action,
+    reason,
+    duplicatePrevented,
+  };
+}
+
+export async function runAutomationsCore(options) {
+  const businessId = options && options.businessId;
+  const dryRun = options && Object.prototype.hasOwnProperty.call(options, "dryRun")
+    ? Boolean(options.dryRun)
+    : true;
+  const allowProviderSends = Boolean(options && options.allowProviderSends);
+  const limit = Math.max(1, Math.min(Number((options && options.limit) || 50), 200));
+  const now = options && options.now ? new Date(options.now) : new Date();
+  const nowIso = now.toISOString();
+  const results = [];
+  const countsByAutomation = new Map();
+  let evaluated = 0;
+  let eligible = 0;
+  let actionsCreated = 0;
+  let skipped = 0;
+  let failures = 0;
+  let duplicatesPrevented = 0;
+
+  if (!businessId) {
+    return { success: false, error: "Business id is required." };
+  }
+
+  if (!UUID_RE.test(businessId)) {
+    return { success: false, error: "Invalid business id." };
+  }
+
+  let supabase;
+
+  try {
+    supabase = createServiceClient();
+  } catch (error) {
+    return {
+      success: false,
+      error: "Automation runner is not configured.",
+      details: isDevelopment() && error instanceof Error ? error.message : undefined,
+    };
+  }
+
+  const { data: business, error: businessError } = await supabase
+    .from("businesses")
+    .select(BUSINESS_SELECT)
+    .eq("id", businessId)
+    .maybeSingle();
+
+  if (businessError) {
+    return {
+      success: false,
+      error: getDatabaseError("Business lookup failed", businessError.message),
+    };
+  }
+
+  if (!business) {
+    return { success: false, error: "Business not found." };
+  }
+
+  const { data: automationsData, error: automationsError } = await supabase
+    .from("automations")
+    .select(AUTOMATION_SELECT)
+    .eq("business_id", businessId)
+    .eq("enabled", true)
+    .order("created_at", { ascending: true });
+
+  if (automationsError) {
+    return {
+      success: false,
+      error: getDatabaseError("Automation lookup failed", automationsError.message),
+    };
+  }
+
+  const automations = automationsData || [];
+
+  if (automations.length === 0) {
+    return {
+      success: true,
+      dryRun,
+      businessId,
+      evaluated: 0,
+      eligible: 0,
+      actionsCreated: 0,
+      skipped: 0,
+      failures: 0,
+      duplicatesPrevented: 0,
+      providerSendsAllowed: allowProviderSends,
+      deliverySkipped: shouldSkipDelivery(),
+      results: [],
+    };
+  }
+
+  const { data: leadsData, error: leadsError } = await supabase
+    .from("leads")
+    .select(LEAD_SELECT)
+    .eq("business_id", businessId)
+    .order("created_at", { ascending: false })
+    .limit(limit * 4);
+
+  if (leadsError) {
+    return {
+      success: false,
+      error: getDatabaseError("Lead lookup failed", leadsError.message),
+    };
+  }
+
+  const leads = leadsData || [];
+  const deliverySkipped = shouldSkipDelivery();
+  const smsReadiness = getSmsReadiness(business);
+  const emailReadiness = getEmailReadiness(business);
+
+  outer:
+  for (const automation of automations) {
+    let createdForAutomation = 0;
+
+    for (const lead of leads) {
+      if (results.length >= limit) break outer;
+
+      evaluated += 1;
+      const match = leadMatchesAutomation(automation, lead, business, now);
+
+      if (!match.eligible) continue;
+
+      const contactError = validateContact(automation, lead);
+      if (contactError) {
+        skipped += 1;
+        results.push(makeResult(automation, lead, "skipped", contactError));
+        continue;
+      }
+
+      if (automation.channel === "sms" && !deliverySkipped && allowProviderSends && !smsReadiness.configured) {
+        skipped += 1;
+        results.push(makeResult(automation, lead, "skipped", smsReadiness.reason || "SMS provider is not configured."));
+        continue;
+      }
+
+      if (automation.channel === "email" && !deliverySkipped && allowProviderSends && !emailReadiness.configured) {
+        skipped += 1;
+        results.push(makeResult(automation, lead, "skipped", emailReadiness.reason || "Email provider is not configured."));
+        continue;
+      }
+
+      if (allowProviderSends && !deliverySkipped) {
+        skipped += 1;
+        results.push(
+          makeResult(
+            automation,
+            lead,
+            "skipped",
+            "Real provider sends are not implemented in the Phase 6 runner."
+          )
+        );
+        continue;
+      }
+
+      const actionKey = getActionKey(automation, lead);
+      const duplicateCheck = await hasDuplicateAction(supabase, businessId, actionKey);
+
+      if (duplicateCheck.error) {
+        failures += 1;
+        results.push(
+          makeResult(
+            automation,
+            lead,
+            "failed",
+            getDatabaseError("Duplicate lookup failed", duplicateCheck.error.message)
+          )
+        );
+        continue;
+      }
+
+      if (duplicateCheck.duplicate) {
+        skipped += 1;
+        duplicatesPrevented += 1;
+        results.push(
+          makeResult(
+            automation,
+            lead,
+            "skipped",
+            "Duplicate automation action skipped.",
+            true
+          )
+        );
+        continue;
+      }
+
+      eligible += 1;
+
+      if (dryRun) {
+        results.push(
+          makeResult(
+            automation,
+            lead,
+            match.action === "create_review_request"
+              ? "would_create_review_request"
+              : "would_send_message",
+            "Automation runner is in dry-run mode. No actions were created."
+          )
+        );
+        continue;
+      }
+
+      const body = renderTemplate(automation.message_template || "", business, lead);
+
+      if (!body.trim()) {
+        skipped += 1;
+        results.push(makeResult(automation, lead, "skipped", "Automation message template is empty."));
+        continue;
+      }
+
+      const actionResult =
+        match.action === "create_review_request"
+          ? await createReviewRequestAction(supabase, business, automation, lead, body)
+          : await createMessageAction(supabase, business, automation, lead, body);
+
+      if (actionResult.error || !actionResult.id) {
+        failures += 1;
+        const reason = getDatabaseError(
+          "Automation action failed",
+          actionResult.error ? actionResult.error.message : "No action id returned."
+        );
+        results.push(makeResult(automation, lead, "failed", reason));
+        await logAutomationEvent(supabase, {
+          businessId,
+          action: "automation.failed",
+          entityType: "lead",
+          entityId: lead.id,
+          metadata: {
+            automation_id: automation.id,
+            automation_type: automation.type,
+            action_key: actionKey,
+            reason,
+          },
+        });
+        continue;
+      }
+
+      const auditError = await logAutomationEvent(supabase, {
+        businessId,
+        action: "automation.action_created",
+        entityType: "lead",
+        entityId: lead.id,
+        metadata: {
+          automation_id: automation.id,
+          automation_type: automation.type,
+          action_key: actionKey,
+          created_entity_id: actionResult.id,
+          created_entity_type:
+            match.action === "create_review_request" ? "review_request" : "message",
+          provider_delivery: "not_called",
+        },
+      });
+
+      if (auditError) {
+        failures += 1;
+        results.push(
+          makeResult(
+            automation,
+            lead,
+            "failed",
+            getDatabaseError("Automation audit log failed", auditError.message)
+          )
+        );
+        continue;
+      }
+
+      actionsCreated += 1;
+      createdForAutomation += 1;
+      results.push(
+        makeResult(
+          automation,
+          lead,
+          match.action === "create_review_request"
+            ? "created_review_request"
+            : "created_message",
+          "Automation action created without provider delivery."
+        )
+      );
+    }
+
+    if (!dryRun && createdForAutomation > 0) {
+      countsByAutomation.set(automation.id, {
+        automation,
+        count: createdForAutomation,
+      });
+    }
+  }
+
+  if (!dryRun) {
+    for (const { automation, count } of countsByAutomation.values()) {
+      const counterError = await incrementAutomationCounters(
+        supabase,
+        automation,
+        count,
+        nowIso
+      );
+
+      if (counterError) {
+        failures += 1;
+        results.push({
+          automationId: automation.id,
+          automationType: automation.type,
+          entityType: "lead",
+          entityId: businessId,
+          action: "failed",
+          reason: getDatabaseError("Automation counter update failed", counterError.message),
+        });
+      }
+    }
+  }
+
+  return {
+    success: true,
+    dryRun,
+    businessId,
+    evaluated,
+    eligible,
+    actionsCreated,
+    skipped,
+    failures,
+    duplicatesPrevented,
+    providerSendsAllowed: allowProviderSends,
+    deliverySkipped,
+    results,
+  };
+}
