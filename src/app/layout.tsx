@@ -15,9 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "FollowUp — Simple CRM with Automated Follow-Ups",
+  title: "FollowUp CRM",
   description:
-    "Capture leads, follow up automatically, and turn real customers into Google reviews. Built for local businesses.",
+    "Capture leads, manage follow-up actions, and turn real customers into Google reviews. Built for local businesses.",
 };
 
 export default function RootLayout({

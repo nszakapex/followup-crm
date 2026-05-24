@@ -1,26 +1,37 @@
 "use server";
 
-import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
+import { getAutomationTemplateForBusiness } from "@/lib/business-verticals/verticals";
+import { createClient } from "@/lib/supabase/server";
+
 interface OnboardingData {
-  // Step 1: Business info
   businessName: string;
   industry: string;
   website: string;
   ownerName: string;
   ownerPhone: string;
-  // Step 2: Follow-up preferences
   instantReply: boolean;
   twentyFourHourFollowup: boolean;
   threeDayFollowup: boolean;
   preferredChannel: "sms" | "email";
-  // Step 3: Review setup
   googleReviewLink: string;
   reviewRequestsEnabled: boolean;
-  // Step 4: CRM mode
   crmMode: "standalone" | "connected";
   externalCrmName?: string;
+}
+
+function getVerticalTemplate(
+  industry: string,
+  automationType: string,
+  templateKey: string
+) {
+  return getAutomationTemplateForBusiness({
+    business: { industry },
+    automationType,
+    templateKey,
+    currentTemplate: null,
+  });
 }
 
 export async function completeOnboarding(data: OnboardingData) {
@@ -34,20 +45,18 @@ export async function completeOnboarding(data: OnboardingData) {
     return { error: "Not authenticated." };
   }
 
-  // Get the user's business
-  const { data: userProfile } = await supabase
+  const { data: userProfile, error: userProfileError } = await supabase
     .from("users")
     .select("business_id")
     .eq("id", user.id)
     .single();
 
-  if (!userProfile) {
+  if (userProfileError || !userProfile) {
     return { error: "User profile not found." };
   }
 
   const businessId = userProfile.business_id;
 
-  // Update business with onboarding data
   const { error: bizError } = await supabase
     .from("businesses")
     .update({
@@ -68,7 +77,6 @@ export async function completeOnboarding(data: OnboardingData) {
     return { error: "Failed to save business info: " + bizError.message };
   }
 
-  // Create default automations
   const automations = [];
 
   if (data.instantReply) {
@@ -79,7 +87,11 @@ export async function completeOnboarding(data: OnboardingData) {
       enabled: true,
       delay_hours: 0,
       trigger_status: "new" as const,
-      message_template: `Hey, this is ${data.businessName}. Thanks for reaching out — we'll get back to you shortly. What can we help you with?`,
+      message_template: getVerticalTemplate(
+        data.industry,
+        "instant_lead_reply",
+        "new_lead_initial"
+      ),
       channel: data.preferredChannel as "sms" | "email",
     });
   }
@@ -92,7 +104,11 @@ export async function completeOnboarding(data: OnboardingData) {
       enabled: true,
       delay_hours: 24,
       trigger_status: "contacted" as const,
-      message_template: `Hey {{first_name}}, just following up from yesterday. Still interested? Let us know how we can help.`,
+      message_template: getVerticalTemplate(
+        data.industry,
+        "twenty_four_hour_followup",
+        "new_lead_followup_1"
+      ),
       channel: data.preferredChannel as "sms" | "email",
     });
   }
@@ -105,7 +121,11 @@ export async function completeOnboarding(data: OnboardingData) {
       enabled: true,
       delay_hours: 72,
       trigger_status: "contacted" as const,
-      message_template: `Hi {{first_name}}, we wanted to check in one more time. If you're still looking for help, we're here. Just reply to this message.`,
+      message_template: getVerticalTemplate(
+        data.industry,
+        "three_day_followup",
+        "no_response_followup"
+      ),
       channel: data.preferredChannel as "sms" | "email",
     });
   }
@@ -118,12 +138,15 @@ export async function completeOnboarding(data: OnboardingData) {
       enabled: true,
       delay_hours: 1,
       trigger_status: "completed" as const,
-      message_template: `Hi {{first_name}}, thank you for choosing ${data.businessName}. If you had a good experience, would you mind leaving us an honest Google review? Here's the link: ${data.googleReviewLink || "{{google_review_link}}"}`,
+      message_template: getVerticalTemplate(
+        data.industry,
+        "review_request",
+        "review_request_initial"
+      ),
       channel: data.preferredChannel as "sms" | "email",
     });
   }
 
-  // Always create missed call textback (disabled by default)
   automations.push({
     business_id: businessId,
     name: "Missed-Call Text-Back",
@@ -131,11 +154,14 @@ export async function completeOnboarding(data: OnboardingData) {
     enabled: false,
     delay_hours: 0,
     trigger_status: "new" as const,
-    message_template: `Hey, sorry we missed your call. How can we help you?`,
+    message_template: getVerticalTemplate(
+      data.industry,
+      "missed_call_textback",
+      "missed_call_initial"
+    ),
     channel: "sms" as const,
   });
 
-  // Always create weekly summary (disabled by default)
   automations.push({
     business_id: businessId,
     name: "Weekly Owner Summary",
@@ -148,9 +174,7 @@ export async function completeOnboarding(data: OnboardingData) {
   });
 
   if (automations.length > 0) {
-    const { error: autoError } = await supabase
-      .from("automations")
-      .insert(automations);
+    const { error: autoError } = await supabase.from("automations").insert(automations);
 
     if (autoError) {
       return { error: "Business saved but automation setup failed: " + autoError.message };

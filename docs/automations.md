@@ -672,6 +672,42 @@ Manual follow-up sends still use the existing server-side send path. Live mode
 requires explicit confirmation; test/skip mode records a safe handled outcome
 and calls no provider.
 
+## Phase 10 Vertical-Agnostic Workflow Configuration
+
+Phase 10 keeps FollowUp reusable for local/service businesses while adding a
+small business workflow configuration layer. The default vertical is
+`generic_service_business`; unknown or unset business types fall back to that
+generic service-business configuration.
+
+Car detailing is configured as the first beta/test vertical through
+`auto_detailing`. Detailing language is limited to vertical configuration,
+demo/beta fixtures, seeded templates, suggested messages, and action reasons
+for businesses whose `industry` resolves to `auto_detailing`.
+
+Generic product UI should continue to use reusable labels such as:
+
+- Leads
+- Customers
+- Review requests
+- Pending automation actions
+- Follow-ups
+- Manual approval required
+
+The automation runner and follow-up queue choose templates from the selected
+vertical when available. Queueing remains manual-approval-only and idempotent:
+no provider sends happen from `/api/automations/run`,
+`/api/automations/scheduled-run`, or queue generation.
+
+Detailing beta smoke test:
+
+1. Create or use a demo/test business.
+2. Run `npm run reset:demo -- --business-id=BUSINESS_ID --confirm-demo`.
+3. Run `npm run seed:demo -- --business-id=BUSINESS_ID --confirm-demo`.
+4. Confirm the business industry is `auto_detailing`.
+5. Run a dry-run and then a confirmed automation check.
+6. Confirm pending actions use detailing-specific suggestions, while the CRM UI
+   remains generic and no send-all/bulk/automatic provider delivery appears.
+
 ## Phase 7C Review Request Delivery Reliability
 
 Manual automation approval for `review_request` actions now uses the hardened review request lifecycle documented in `docs/review-requests.md`.

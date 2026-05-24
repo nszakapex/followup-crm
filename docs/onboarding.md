@@ -70,6 +70,13 @@ actions still require one-at-a-time operator review. Queueing is idempotent,
 stop conditions suppress unsafe/redundant follow-ups, and provider delivery
 never starts from cron or the browser.
 
+Phase 10 adds vertical-agnostic workflow configuration. Businesses without a
+recognized type use the `generic_service_business` fallback. `auto_detailing`
+is the first beta/test vertical and only affects configured templates,
+suggested messages, demo fixtures, and vertical-specific action reasons. The
+CRM should still read as a reusable local/service-business tool, not as a
+detailing-only product.
+
 ### SMS Readiness
 
 SMS readiness is determined server-side from safe booleans only.
@@ -134,6 +141,12 @@ The app must not add:
 10. Review pending actions.
 11. Approve/send one safe action.
 
+For the detailing beta, seed a demo business with `npm run seed:demo`. The seed
+sets the business industry to `auto_detailing`, uses fake/test contact data,
+and creates detailing-specific leads for full-detail, ceramic-coating,
+estimate, no-response, completed-customer, missing-destination, and duplicate
+risk smoke tests.
+
 ## Smoke Tests
 
 Open setup:
@@ -186,3 +199,5 @@ Regression:
 - cron does not send messages
 - provider sends happen only after a logged-in operator clicks one manual send action
 - follow-up queue actions remain manual, duplicate-protected, and repeat-click safe
+- unknown or missing business type falls back to generic service-business templates
+- detailing beta copy appears only through vertical config, demo data, or seeded suggestions

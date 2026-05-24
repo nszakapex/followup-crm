@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getWorkflowTemplate } from "@/lib/business-verticals/verticals";
 import type { AutomationType, MessageChannel } from "@/types/database";
 
 interface DefaultAutomation {
@@ -18,8 +19,7 @@ const DEFAULTS: DefaultAutomation[] = [
     name: "Instant Reply to New Leads",
     delay_hours: 0,
     trigger_status: "new",
-    message_template:
-      "Hey, this is {{business_name}}. Thanks for reaching out — we'll get back to you shortly. What can we help you with?",
+    message_template: getWorkflowTemplate("generic_service_business", "new_lead_initial"),
     channel: "sms",
   },
   {
@@ -27,8 +27,7 @@ const DEFAULTS: DefaultAutomation[] = [
     name: "24-Hour Follow-Up",
     delay_hours: 24,
     trigger_status: "contacted",
-    message_template:
-      "Hey {{first_name}}, just following up from yesterday. Still interested? Let us know how we can help.",
+    message_template: getWorkflowTemplate("generic_service_business", "new_lead_followup_1"),
     channel: "sms",
   },
   {
@@ -36,8 +35,7 @@ const DEFAULTS: DefaultAutomation[] = [
     name: "3-Day Follow-Up",
     delay_hours: 72,
     trigger_status: "contacted",
-    message_template:
-      "Hi {{first_name}}, we wanted to check in one more time. If you're still looking for help, we're here. Just reply to this message.",
+    message_template: getWorkflowTemplate("generic_service_business", "no_response_followup"),
     channel: "sms",
   },
   {
@@ -45,7 +43,7 @@ const DEFAULTS: DefaultAutomation[] = [
     name: "Missed-Call Text-Back",
     delay_hours: 0,
     trigger_status: "new",
-    message_template: "Hey, sorry we missed your call. How can we help you?",
+    message_template: getWorkflowTemplate("generic_service_business", "missed_call_initial"),
     channel: "sms",
   },
   {
@@ -53,8 +51,7 @@ const DEFAULTS: DefaultAutomation[] = [
     name: "Google Review Request",
     delay_hours: 1,
     trigger_status: "completed",
-    message_template:
-      "Hi {{first_name}}, thank you for choosing {{business_name}}. If you had a good experience, would you mind leaving us an honest Google review? Here's the link: {{google_review_link}}",
+    message_template: getWorkflowTemplate("generic_service_business", "review_request_initial"),
     channel: "sms",
   },
   {
@@ -68,8 +65,8 @@ const DEFAULTS: DefaultAutomation[] = [
 ];
 
 /**
- * Ensures all 6 default automation types exist for a business.
- * Only creates missing types — never duplicates existing rows.
+ * Ensures all six default automation types exist for a business.
+ * Only creates missing types, never duplicates existing rows.
  */
 export async function ensureDefaultAutomations(
   supabase: SupabaseClient,

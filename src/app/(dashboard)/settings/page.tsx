@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ReadinessPanel, type ReadinessItem } from "@/components/ui/readiness-panel";
+import { getBusinessVerticalLabel } from "@/lib/business-verticals/verticals";
 import {
   getDeliveryModeLabel,
   getEmailProviderReadiness,
@@ -73,6 +74,7 @@ export default async function SettingsPage() {
   }
 
   const biz = business as Business;
+  const businessVerticalLabel = getBusinessVerticalLabel(biz.industry);
   const [
     { data: leadsData, error: leadsError },
     { data: reviewRequestsData, error: reviewRequestsError },
@@ -132,6 +134,11 @@ export default async function SettingsPage() {
   }
 }`;
   const settingsReadinessItems: ReadinessItem[] = [
+    {
+      title: "Business workflow type",
+      description: `${businessVerticalLabel} workflow templates are selected for suggested messages.`,
+      status: "complete",
+    },
     {
       title: "Business identity",
       description: businessIdentityReady
@@ -240,7 +247,7 @@ export default async function SettingsPage() {
               </p>
               <h2 className="mt-3 text-2xl font-semibold">{biz.name}</h2>
               <p className="mt-2 text-sm text-background/65">
-                {biz.industry || "Industry not set"}
+                {businessVerticalLabel}
               </p>
               <div className="mt-5 flex flex-wrap gap-2">
                 <Badge className="bg-background/10 text-background hover:bg-background/10">

@@ -1,4 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  getAutomationTemplateForBusiness,
+  getWorkflowReason,
+} from "../business-verticals/verticals.mjs";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -9,7 +13,7 @@ const LEAD_SELECT =
 const AUTOMATION_SELECT =
   "id, business_id, name, type, enabled, delay_hours, trigger_status, message_template, channel, last_triggered_at, trigger_count";
 const BUSINESS_SELECT =
-  "id, name, owner_email, google_review_link, twilio_from_number, resend_from_email";
+  "id, name, industry, owner_email, google_review_link, twilio_from_number, resend_from_email";
 
 function isDevelopment() {
   return process.env.NODE_ENV !== "production";
@@ -96,10 +100,14 @@ function renderTemplate(template, business, lead) {
     last_name: lead.last_name || "",
     business_name: business.name || "",
     google_review_link: business.google_review_link || "",
+    firstName: lead.first_name || "",
+    lastName: lead.last_name || "",
+    businessName: business.name || "",
+    reviewLink: business.google_review_link || "",
   };
 
   return template.replace(
-    /\{\{\s*(first_name|last_name|business_name|google_review_link)\s*\}\}/g,
+    /\{\{\s*(first_name|last_name|business_name|google_review_link|firstName|lastName|businessName|reviewLink)\s*\}\}/g,
     (_, key) => values[key] || ""
   );
 }
@@ -312,20 +320,36 @@ function getActionSummary(automation, lead, match) {
   return `${getLeadName(lead)} matched ${automation.name}. Suggested ${channel} follow-up is ready for review${contact ? "" : ", but contact details should be checked"}.`;
 }
 
-function getActionReason(automation, lead, match) {
+function getActionReason(automation, lead, match, business) {
   if (match.action === "create_review_request") {
-    return "Lead is completed and eligible for an honest Google review request.";
+    return getWorkflowReason(
+      business.industry,
+      "review_request_initial",
+      "Lead is completed and eligible for an honest Google review request."
+    );
   }
 
   if (automation.type === "missed_call_textback") {
-    return "Lead appears to be a missed-call new lead.";
+    return getWorkflowReason(
+      business.industry,
+      "missed_call_initial",
+      "Lead appears to be a missed-call new lead."
+    );
   }
 
   if (automation.trigger_status) {
-    return `Lead status matched ${automation.trigger_status}.`;
+    return getWorkflowReason(
+      business.industry,
+      getSequenceActionType(automation, match),
+      `Lead status matched ${automation.trigger_status}.`
+    );
   }
 
-  return "Lead matched the automation eligibility rules.";
+  return getWorkflowReason(
+    business.industry,
+    getSequenceActionType(automation, match),
+    "Lead matched the automation eligibility rules."
+  );
 }
 
 function buildActionMetadata(automation, lead, match, business, now) {
@@ -345,7 +369,7 @@ function buildActionMetadata(automation, lead, match, business, now) {
     automationName: automation.name,
     automationChannel: automation.channel,
     eligibilityAction: match.action,
-    eligibilityReason: getActionReason(automation, lead, match),
+    eligibilityReason: getActionReason(automation, lead, match, business),
     leadStatus: lead.status,
     leadSource: lead.source || null,
     daysSinceCreated,
@@ -380,7 +404,7 @@ async function createPendingAutomationAction(
       title: getActionTitle(automation, lead, match),
       summary: getActionSummary(automation, lead, match),
       suggested_message: body,
-      reason: getActionReason(automation, lead, match),
+      reason: getActionReason(automation, lead, match, business),
       reason_code: getSequenceActionType(automation, match),
       source: "automation_run",
       run_id: null,
@@ -664,7 +688,13 @@ export async function runAutomationsCore(options) {
         continue;
       }
 
-      const body = renderTemplate(automation.message_template || "", business, lead);
+      const template = getAutomationTemplateForBusiness({
+        business,
+        automationType: automation.type,
+        templateKey: getSequenceActionType(automation, match),
+        currentTemplate: automation.message_template || "",
+      });
+      const body = renderTemplate(template, business, lead);
 
       if (!body.trim()) {
         skipped += 1;

@@ -21,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { getBusinessVerticalLabel } from "@/lib/business-verticals/verticals";
 import { getBusinessReadiness } from "@/lib/onboarding/readiness";
 import { getReviewProviderReadiness } from "@/lib/reviews/provider-readiness";
 import { createClient } from "@/lib/supabase/server";
@@ -167,6 +168,7 @@ export default async function SetupPage() {
 
   const biz = business as Business;
   const readiness = await getBusinessReadiness(supabase, profile.business_id);
+  const businessVerticalLabel = getBusinessVerticalLabel(biz.industry);
 
   const canTestReviewRequest =
     readiness.reviewSetup.googleReviewLinkConfigured &&
@@ -222,6 +224,10 @@ export default async function SetupPage() {
             <p className="mt-4 max-w-xl text-sm leading-6 text-background/70">
               Next best action: {readiness.overall.nextBestAction}. The app explains
               blockers before a send can happen.
+            </p>
+            <p className="mt-3 text-sm leading-6 text-background/70">
+              Business type: {businessVerticalLabel}. Unknown or unset types use the
+              generic service-business workflow.
             </p>
           </div>
           <div className="rounded-lg border border-background/10 bg-background/5 p-4">
@@ -307,6 +313,7 @@ export default async function SetupPage() {
             <CardContent className="space-y-4 text-sm">
               {[
                 ["Google review link", readiness.reviewSetup.googleReviewLinkConfigured ? "Ready" : "Missing"],
+                ["Business type", businessVerticalLabel],
                 ["SMS delivery", readiness.smsProvider.canSend ? "Ready" : "Blocked"],
                 ["Email delivery", readiness.emailProvider.canSend ? "Ready" : "Blocked"],
                 ["Current send mode", preferredManualReadiness.mode],

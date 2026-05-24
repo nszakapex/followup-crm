@@ -5,7 +5,10 @@ import {
   evaluateFollowUpEligibility,
   type FollowUpEligibilityResult,
 } from "@/lib/automations/follow-up-eligibility";
-import { FOLLOW_UP_TEMPLATES, renderFollowUpTemplate } from "@/lib/automations/follow-up-templates";
+import {
+  getFollowUpTemplateForBusiness,
+  renderFollowUpTemplate,
+} from "@/lib/automations/follow-up-templates";
 import type { Automation, AutomationActionRecord, Business, Lead, ReviewRequest } from "@/types/database";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -67,7 +70,7 @@ export async function queueFollowUpActions(
   ] = await Promise.all([
     supabase
       .from("businesses")
-      .select("id, name, google_review_link")
+      .select("id, name, google_review_link, industry")
       .eq("id", businessId)
       .maybeSingle(),
     supabase
@@ -105,7 +108,7 @@ export async function queueFollowUpActions(
     return { success: false, error: `Review request lookup failed: ${reviewRequestsError.message}` };
   }
 
-  const business = businessData as Pick<Business, "id" | "name" | "google_review_link">;
+  const business = businessData as Pick<Business, "id" | "name" | "google_review_link" | "industry">;
   const automations = (automationsData ?? []) as Automation[];
   const leads = (leadsData ?? []) as Lead[];
   const existingActions = (actionsData ?? []) as AutomationActionRecord[];
@@ -147,9 +150,12 @@ export async function queueFollowUpActions(
         continue;
       }
 
-      const template =
-        automation.message_template?.trim() ||
-        FOLLOW_UP_TEMPLATES[eligibility.rule.templateKey];
+      const template = getFollowUpTemplateForBusiness({
+        business,
+        automationType: automation.type,
+        templateKey: eligibility.rule.templateKey,
+        currentTemplate: automation.message_template,
+      });
       const suggestedMessage = renderFollowUpTemplate(template, business, lead);
 
       const { data: inserted, error: insertError } = await supabase

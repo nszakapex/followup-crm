@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import { getWorkflowTemplate } from "../src/lib/business-verticals/verticals.mjs";
 
 export const DEMO_PREFIX = "demo-phase-5a";
 export const DEMO_EXTERNAL_CRM_NAME = "FollowUp demo seed";
@@ -16,8 +17,7 @@ const DEFAULT_AUTOMATIONS = [
     name: "Instant Reply to New Leads",
     delay_hours: 0,
     trigger_status: "new",
-    message_template:
-      "Hey, this is {{business_name}}. Thanks for reaching out. We'll get back to you shortly. What can we help you with?",
+    message_template: getWorkflowTemplate("auto_detailing", "new_lead_initial"),
     channel: "sms",
   },
   {
@@ -25,8 +25,7 @@ const DEFAULT_AUTOMATIONS = [
     name: "24-Hour Follow-Up",
     delay_hours: 24,
     trigger_status: "contacted",
-    message_template:
-      "Hey {{first_name}}, just following up from yesterday. Still interested? Let us know how we can help.",
+    message_template: getWorkflowTemplate("auto_detailing", "new_lead_followup_1"),
     channel: "sms",
   },
   {
@@ -34,8 +33,7 @@ const DEFAULT_AUTOMATIONS = [
     name: "3-Day Follow-Up",
     delay_hours: 72,
     trigger_status: "contacted",
-    message_template:
-      "Hi {{first_name}}, we wanted to check in one more time. If you're still looking for help, we're here. Just reply to this message.",
+    message_template: getWorkflowTemplate("auto_detailing", "no_response_followup"),
     channel: "sms",
   },
   {
@@ -43,7 +41,7 @@ const DEFAULT_AUTOMATIONS = [
     name: "Missed-Call Text-Back",
     delay_hours: 0,
     trigger_status: "new",
-    message_template: "Hey, sorry we missed your call. How can we help you?",
+    message_template: getWorkflowTemplate("auto_detailing", "missed_call_initial"),
     channel: "sms",
   },
   {
@@ -51,8 +49,7 @@ const DEFAULT_AUTOMATIONS = [
     name: "Google Review Request",
     delay_hours: 1,
     trigger_status: "completed",
-    message_template:
-      "Hi {{first_name}}, thank you for choosing {{business_name}}. Would you mind leaving us an honest Google review? Here's the link: {{google_review_link}}",
+    message_template: getWorkflowTemplate("auto_detailing", "review_request_initial"),
     channel: "sms",
   },
   {
@@ -67,212 +64,259 @@ const DEFAULT_AUTOMATIONS = [
 
 const DEMO_LEADS = [
   {
-    key: "sarah-miller",
-    first_name: "Sarah",
-    last_name: "Miller",
-    phone: "5550101001",
-    email: "sarah.demo@example.com",
+    key: "maya-full-detail",
+    first_name: "Maya",
+    last_name: "Turner",
+    phone: "5550102001",
+    email: "maya.detailing@example.com",
     source: "Website form",
     status: "new",
-    intent: "Color consultation",
-    notes: "Asked about availability for a first-time color appointment.",
-    ai_summary: "New website lead looking for a color consultation this week.",
+    intent: "Full detail inquiry",
+    notes: "Asked about a full detail for a midsize SUV.",
+    ai_summary: "New website lead asking for interior and exterior detailing.",
     followup_count: 0,
     createdDaysAgo: 1,
   },
   {
-    key: "james-carter",
-    first_name: "James",
-    last_name: "Carter",
-    phone: "5550101002",
-    email: "james.demo@example.com",
+    key: "tyler-ceramic-missed-call",
+    first_name: "Tyler",
+    last_name: "Nguyen",
+    phone: "5550102002",
+    email: "tyler.detailing@example.com",
     source: "Missed call",
-    status: "needs_reply",
-    intent: "Same-day appointment",
-    notes: "Called after hours and asked for a quick callback.",
-    ai_summary: "Needs a response after a missed call about same-day availability.",
+    status: "new",
+    intent: "Ceramic coating quote",
+    notes: "Missed call lead asking about ceramic coating pricing.",
+    ai_summary: "Missed-call detailing lead interested in ceramic coating.",
+    followup_count: 0,
+    createdDaysAgo: 2,
+  },
+  {
+    key: "zoe-estimate",
+    first_name: "Zoe",
+    last_name: "Martinez",
+    phone: "5550102003",
+    email: "zoe.detailing@example.com",
+    source: "Google Business Profile",
+    status: "contacted",
+    intent: "Interior/exterior estimate",
+    notes: "Received an estimate for interior and exterior detail packages.",
+    ai_summary: "Estimate sent, good candidate for a polite follow-up.",
     followup_count: 1,
-    createdDaysAgo: 3,
+    createdDaysAgo: 5,
     lastContactedDaysAgo: 2,
   },
   {
-    key: "emma-rodriguez",
-    first_name: "Emma",
-    last_name: "Rodriguez",
-    phone: "5550101003",
-    email: "emma.demo@example.com",
-    source: "Google Business Profile",
+    key: "ben-booked",
+    first_name: "Ben",
+    last_name: "Avery",
+    phone: "5550102004",
+    email: "ben.detailing@example.com",
+    source: "Referral",
     status: "booked",
-    intent: "Estimate",
-    notes: "Booked a consultation after asking about service packages.",
-    ai_summary: "Google lead converted into a booked estimate.",
+    intent: "Booked full detail",
+    notes: "Booked a full detail for next week.",
+    ai_summary: "Referral lead converted into a booked detail.",
     followup_count: 2,
     createdDaysAgo: 6,
     lastContactedDaysAgo: 4,
   },
   {
-    key: "daniel-kim",
-    first_name: "Daniel",
-    last_name: "Kim",
-    phone: "5550101004",
-    email: "daniel.demo@example.com",
-    source: "Referral",
-    status: "review_requested",
-    intent: "Completed service",
-    notes: "Happy with the completed appointment and received a review request.",
-    ai_summary: "Completed customer with a review request already sent.",
-    followup_count: 3,
-    createdDaysAgo: 10,
-    lastContactedDaysAgo: 8,
-  },
-  {
-    key: "olivia-bennett",
-    first_name: "Olivia",
-    last_name: "Bennett",
-    phone: "5550101005",
-    email: "olivia.demo@example.com",
-    source: "Google Ads",
-    status: "interested",
-    intent: "Pricing question",
-    notes: "Asked for pricing and wants to compare dates next week.",
-    ai_summary: "Interested lead comparing pricing and appointment timing.",
-    followup_count: 1,
-    createdDaysAgo: 12,
-    nextFollowupDaysFromNow: 2,
-  },
-  {
-    key: "marcus-lee",
-    first_name: "Marcus",
-    last_name: "Lee",
-    phone: "5550101006",
-    email: "marcus.demo@example.com",
-    source: "Walk-in",
-    status: "completed",
-    intent: "Completed service",
-    notes: "Completed visit and thanked the team before leaving.",
-    ai_summary: "Completed customer, strong candidate for an honest review request.",
-    followup_count: 2,
-    createdDaysAgo: 15,
-    lastContactedDaysAgo: 14,
-  },
-  {
-    key: "hannah-brooks",
-    first_name: "Hannah",
+    key: "riley-review-ready",
+    first_name: "Riley",
     last_name: "Brooks",
-    phone: "5550101007",
-    email: "hannah.demo@example.com",
-    source: "Facebook",
-    status: "new",
-    intent: "First visit",
-    notes: "Sent a Facebook message asking whether new clients are accepted.",
-    ai_summary: "New social lead asking about first-visit availability.",
-    followup_count: 0,
-    createdDaysAgo: 18,
-  },
-  {
-    key: "priya-shah",
-    first_name: "Priya",
-    last_name: "Shah",
-    phone: "5550101008",
-    email: "priya.demo@example.com",
-    source: "Website chat",
-    status: "needs_reply",
-    intent: "Appointment follow-up",
-    notes: "Asked a follow-up question after getting the first reply.",
-    ai_summary: "Needs owner reply before the lead can move forward.",
-    followup_count: 2,
-    createdDaysAgo: 21,
-    lastContactedDaysAgo: 19,
-  },
-  {
-    key: "ethan-walker",
-    first_name: "Ethan",
-    last_name: "Walker",
-    phone: "5550101009",
-    email: "ethan.demo@example.com",
-    source: "Instagram",
-    status: "contacted",
-    intent: "Follow-up scheduled",
-    notes: "Asked to be contacted later this week.",
-    ai_summary: "Contacted lead with a future follow-up scheduled.",
-    followup_count: 1,
-    createdDaysAgo: 25,
-    lastContactedDaysAgo: 23,
-    nextFollowupDaysFromNow: 3,
-  },
-  {
-    key: "grace-thompson",
-    first_name: "Grace",
-    last_name: "Thompson",
-    phone: "5550101010",
-    email: "grace.demo@example.com",
-    source: "Referral",
+    phone: "5550102005",
+    email: "riley.detailing@example.com",
+    source: "Completed detail",
     status: "completed",
-    intent: "Completed service",
-    notes: "Completed service and responded positively to the follow-up.",
-    ai_summary: "Completed referral customer with positive sentiment.",
-    followup_count: 2,
-    createdDaysAgo: 29,
-    lastContactedDaysAgo: 27,
-  },
-  {
-    key: "avery-parker",
-    first_name: "Avery",
-    last_name: "Parker",
-    phone: "5550101011",
-    email: "avery.demo@example.com",
-    source: "Demo completed service",
-    status: "completed",
-    intent: "Completed service",
+    intent: "Completed full detail",
     notes:
-      "Demo fixture: completed customer with no seeded review request so confirmed automation runs can create a pending review action.",
+      "Demo fixture: completed detailing customer with no seeded review request so confirmed automation runs can create a pending review action.",
     ai_summary:
-      "Completed demo customer intentionally left review-ready for automation queue smoke tests.",
+      "Completed detail customer intentionally left review-ready for automation queue smoke tests.",
     followup_count: 1,
     createdDaysAgo: 8,
     lastContactedDaysAgo: 7,
   },
   {
-    key: "liam-hughes",
-    first_name: "Liam",
-    last_name: "Hughes",
-    phone: "5550101012",
-    email: "liam.demo@example.com",
-    source: "Missed call demo",
+    key: "nora-review-requested",
+    first_name: "Nora",
+    last_name: "Singh",
+    phone: "5550102006",
+    email: "nora.detailing@example.com",
+    source: "Maintenance client",
+    status: "review_requested",
+    intent: "Completed maintenance wash",
+    notes: "Completed detail and already received a review request.",
+    ai_summary: "Completed customer with review request already sent.",
+    followup_count: 2,
+    createdDaysAgo: 12,
+    lastContactedDaysAgo: 10,
+  },
+  {
+    key: "leo-no-response",
+    first_name: "Leo",
+    last_name: "Walker",
+    phone: "5550102007",
+    email: "leo.detailing@example.com",
+    source: "Instagram",
+    status: "needs_reply",
+    intent: "Paint correction question",
+    notes: "Asked about paint correction and has not responded after the first reply.",
+    ai_summary: "No-response detailing lead ready for one final check-in.",
+    followup_count: 1,
+    createdDaysAgo: 9,
+    lastContactedDaysAgo: 4,
+  },
+  {
+    key: "chris-lost",
+    first_name: "Chris",
+    last_name: "Jordan",
+    phone: "5550102008",
+    email: "chris.detailing@example.com",
+    source: "Google Ads",
+    status: "lost",
+    intent: "Price shopping",
+    notes: "Chose another shop after comparing packages.",
+    ai_summary: "Lost lead should be suppressed from follow-up queueing.",
+    followup_count: 2,
+    createdDaysAgo: 16,
+    lastContactedDaysAgo: 12,
+  },
+  {
+    key: "sam-missing-contact",
+    first_name: "Sam",
+    last_name: "Parker",
+    phone: null,
+    email: null,
+    source: "Website chat",
     status: "new",
-    intent: "Missed call follow-up",
-    notes:
-      "Demo fixture: missed call lead for pending follow-up action smoke tests.",
-    ai_summary:
-      "New missed-call demo lead intentionally eligible for a text-back automation.",
+    intent: "Needs qualification",
+    notes: "Asked about mobile detailing but did not provide phone or email.",
+    ai_summary: "Missing destination fixture for blocked/suppressed queue testing.",
     followup_count: 0,
-    createdDaysAgo: 4,
+    createdDaysAgo: 3,
+  },
+  {
+    key: "ava-duplicate-risk",
+    first_name: "Ava",
+    last_name: "Kim",
+    phone: "5550102010",
+    email: "ava.detailing@example.com",
+    source: "Repeat customer",
+    status: "completed",
+    intent: "Completed ceramic coating",
+    notes: "Completed ceramic coating and already has a recent review request record.",
+    ai_summary: "Duplicate-risk completed customer for review request dedupe testing.",
+    followup_count: 2,
+    createdDaysAgo: 18,
+    lastContactedDaysAgo: 2,
   },
 ];
 
 const DEMO_REVIEW_REQUESTS = [
-  { key: "daniel-sms", leadKey: "daniel-kim", channel: "sms", status: "clicked", createdDaysAgo: 7, sentDaysAgo: 7, clickedDaysAgo: 6 },
-  { key: "marcus-email", leadKey: "marcus-lee", channel: "email", status: "completed", createdDaysAgo: 12, sentDaysAgo: 12, clickedDaysAgo: 11 },
-  { key: "grace-sms", leadKey: "grace-thompson", channel: "sms", status: "sent", createdDaysAgo: 20, sentDaysAgo: 20 },
-  { key: "emma-sms", leadKey: "emma-rodriguez", channel: "sms", status: "pending", createdDaysAgo: 2 },
-  { key: "olivia-email", leadKey: "olivia-bennett", channel: "email", status: "clicked", createdDaysAgo: 9, sentDaysAgo: 9, clickedDaysAgo: 8 },
-  { key: "sarah-email", leadKey: "sarah-miller", channel: "email", status: "sent", createdDaysAgo: 1, sentDaysAgo: 1 },
-  { key: "priya-sms", leadKey: "priya-shah", channel: "sms", status: "failed", createdDaysAgo: 18, sentDaysAgo: 18 },
+  {
+    key: "nora-sms",
+    leadKey: "nora-review-requested",
+    channel: "sms",
+    status: "sent",
+    createdDaysAgo: 7,
+    sentDaysAgo: 7,
+  },
+  {
+    key: "ava-sms",
+    leadKey: "ava-duplicate-risk",
+    channel: "sms",
+    status: "sent",
+    createdDaysAgo: 2,
+    sentDaysAgo: 2,
+  },
+  {
+    key: "zoe-email",
+    leadKey: "zoe-estimate",
+    channel: "email",
+    status: "clicked",
+    createdDaysAgo: 4,
+    sentDaysAgo: 4,
+    clickedDaysAgo: 3,
+  },
 ];
 
 const DEMO_MESSAGES = [
-  { key: "sarah-auto", leadKey: "sarah-miller", channel: "sms", direction: "outbound", status: "sent", daysAgo: 1, body: "Hi Sarah, thanks for reaching out. We saw your color consultation request and will follow up shortly." },
-  { key: "james-inbound", leadKey: "james-carter", channel: "sms", direction: "inbound", status: "received", daysAgo: 3, body: "Hi, I missed your call. Do you have anything open this afternoon?" },
-  { key: "james-owner", leadKey: "james-carter", channel: "sms", direction: "outbound", status: "sent", daysAgo: 2, body: "Thanks James. We can help. What time window works best for you?" },
-  { key: "emma-booked", leadKey: "emma-rodriguez", channel: "email", direction: "outbound", status: "delivered", daysAgo: 5, body: "Subject: Consultation confirmed\n\nEmma, your consultation is confirmed. We look forward to seeing you." },
-  { key: "daniel-review", leadKey: "daniel-kim", channel: "sms", direction: "outbound", status: "sent", daysAgo: 7, body: "Daniel, thank you for choosing us. Would you mind leaving an honest Google review?" },
-  { key: "olivia-followup", leadKey: "olivia-bennett", channel: "email", direction: "outbound", status: "sent", daysAgo: 11, body: "Subject: Follow-up\n\nOlivia, here are the appointment options we discussed." },
-  { key: "marcus-review", leadKey: "marcus-lee", channel: "email", direction: "outbound", status: "sent", daysAgo: 12, body: "Subject: Quick review request\n\nMarcus, thank you for visiting. We'd appreciate an honest Google review." },
-  { key: "hannah-auto", leadKey: "hannah-brooks", channel: "sms", direction: "outbound", status: "sent", daysAgo: 18, body: "Hi Hannah, thanks for messaging us. Yes, we are accepting new clients." },
-  { key: "priya-inbound", leadKey: "priya-shah", channel: "sms", direction: "inbound", status: "received", daysAgo: 20, body: "Can someone confirm whether Saturday is available?" },
-  { key: "ethan-followup", leadKey: "ethan-walker", channel: "sms", direction: "outbound", status: "sent", daysAgo: 23, body: "Ethan, checking in as requested. Are you still looking for an appointment next week?" },
-  { key: "grace-review", leadKey: "grace-thompson", channel: "sms", direction: "outbound", status: "sent", daysAgo: 20, body: "Grace, thank you again. Would you mind sharing an honest review about your visit?" },
-  { key: "internal-note", leadKey: "olivia-bennett", channel: "manual_note", direction: "internal", status: "delivered", daysAgo: 9, body: "Demo note: Olivia prefers weekday appointments after 3 PM." },
+  {
+    key: "maya-auto",
+    leadKey: "maya-full-detail",
+    channel: "sms",
+    direction: "outbound",
+    status: "sent",
+    daysAgo: 1,
+    body:
+      "Hi Maya, thanks for reaching out about detailing. What vehicle are you looking to have detailed?",
+  },
+  {
+    key: "tyler-inbound",
+    leadKey: "tyler-ceramic-missed-call",
+    channel: "sms",
+    direction: "inbound",
+    status: "received",
+    daysAgo: 2,
+    body: "Hi, I missed your call. Can I get pricing for ceramic coating?",
+  },
+  {
+    key: "zoe-estimate",
+    leadKey: "zoe-estimate",
+    channel: "email",
+    direction: "outbound",
+    status: "delivered",
+    daysAgo: 2,
+    body:
+      "Subject: Detailing estimate\n\nZoe, here are the interior and exterior package options we discussed.",
+  },
+  {
+    key: "ben-booked",
+    leadKey: "ben-booked",
+    channel: "sms",
+    direction: "outbound",
+    status: "sent",
+    daysAgo: 4,
+    body: "Ben, your full detail is booked. We will see you next week.",
+  },
+  {
+    key: "nora-review",
+    leadKey: "nora-review-requested",
+    channel: "sms",
+    direction: "outbound",
+    status: "sent",
+    daysAgo: 7,
+    body: "Nora, thank you for choosing us. Would you mind leaving an honest Google review?",
+  },
+  {
+    key: "leo-followup",
+    leadKey: "leo-no-response",
+    channel: "sms",
+    direction: "outbound",
+    status: "sent",
+    daysAgo: 4,
+    body: "Leo, checking in to see if you still need help with paint correction.",
+  },
+  {
+    key: "ava-review",
+    leadKey: "ava-duplicate-risk",
+    channel: "sms",
+    direction: "outbound",
+    status: "sent",
+    daysAgo: 2,
+    body: "Ava, thanks again for choosing us for your ceramic coating.",
+  },
+  {
+    key: "internal-note",
+    leadKey: "zoe-estimate",
+    channel: "manual_note",
+    direction: "internal",
+    status: "delivered",
+    daysAgo: 1,
+    body: "Demo note: Zoe asked about pet hair removal as an add-on.",
+  },
 ];
 
 const DEMO_AUTOMATION_ACTIVITY = [
@@ -367,6 +411,26 @@ function dateDaysFromNow(days) {
 function makeToken(businessId, key) {
   const businessPart = businessId.replace(/-/g, "").slice(0, 16);
   return `${DEMO_PREFIX.replace(/-/g, "")}-${businessPart}-${key}`;
+}
+
+function normalizeLeadDestination(channel, lead) {
+  if (channel === "sms") return (lead.phone || "").replace(/\D/g, "") || null;
+  if (channel === "email") return (lead.email || "").trim().toLowerCase() || null;
+  return null;
+}
+
+function makeReviewRequestDedupeKey(businessId, leadId, lead, channel) {
+  const destination = normalizeLeadDestination(channel, lead);
+  if (!destination) return null;
+  return `review_request:${businessId}:lead:${leadId}:${channel}:${destination}`;
+}
+
+function getSeedReviewSendStatus(status) {
+  if (status === "sent" || status === "clicked" || status === "completed") return "sent";
+  if (status === "failed") return "failed";
+  if (status === "blocked") return "blocked";
+  if (status === "duplicate_prevented") return "duplicate_prevented";
+  return "not_attempted";
 }
 
 function ensureRequiredArgs(args) {
@@ -574,9 +638,22 @@ async function upsertDemoReviewRequests(supabase, business, leadIdsByKey) {
       channel: request.channel,
       message_body: `Hi ${lead.first_name}, thank you for choosing us. Would you mind leaving an honest Google review? ${trackedLink}`,
       status: request.status,
+      send_status: getSeedReviewSendStatus(request.status),
+      source: "demo_seed",
+      provider: "demo_seed",
+      provider_message_id: `${DEMO_PREFIX}:review:${request.key}`,
+      provider_response_json: { provider: "demo_seed", safeFixture: true },
+      dedupe_key: makeReviewRequestDedupeKey(business.id, leadId, lead, request.channel),
+      google_review_url: business.google_review_link,
       click_token: clickToken,
       sent_at: request.sentDaysAgo ? dateDaysAgo(request.sentDaysAgo) : null,
       clicked_at: request.clickedDaysAgo ? dateDaysAgo(request.clickedDaysAgo) : null,
+      blocked_at: null,
+      failed_at: null,
+      duplicate_prevented_at: null,
+      blocked_reason: null,
+      failure_reason: request.status === "failed" ? "Demo provider failure fixture." : null,
+      duplicate_reason: null,
       created_at: dateDaysAgo(request.createdDaysAgo),
     };
 
@@ -735,11 +812,17 @@ async function ensureDemoAutomations(supabase, businessId) {
   for (const activity of DEMO_AUTOMATION_ACTIVITY) {
     const automation = (automations ?? []).find((row) => row.type === activity.type);
     if (!automation) continue;
+    const defaultAutomation = DEFAULT_AUTOMATIONS.find((item) => item.type === activity.type);
 
     const { error: updateError } = await supabase
       .from("automations")
       .update({
+        name: defaultAutomation?.name,
         enabled: activity.enabled,
+        delay_hours: defaultAutomation?.delay_hours,
+        trigger_status: defaultAutomation?.trigger_status,
+        message_template: defaultAutomation?.message_template,
+        channel: defaultAutomation?.channel,
         trigger_count: activity.trigger_count,
         last_triggered_at: dateDaysAgo(activity.lastTriggeredDaysAgo),
       })
@@ -850,9 +933,10 @@ async function restoreDemoAutomationState(supabase, business, auditMetadata) {
 
 async function markBusinessDemoReady(supabase, business) {
   const update = {
+    industry: "auto_detailing",
     google_review_link:
       business.google_review_link ||
-      "https://www.google.com/search?q=demo+local+business+reviews",
+      "https://www.google.com/search?q=demo+detailing+studio+reviews",
     review_requests_enabled: true,
     lead_followup_enabled: true,
   };
@@ -882,7 +966,7 @@ export async function seedDemoData(args) {
         messages: DEMO_MESSAGES.length,
         automations: DEMO_AUTOMATION_ACTIVITY.length,
         automationActionFixtures:
-          "Confirmed automation runs should create pending actions for Avery Parker and Liam Hughes after reset/seed.",
+          "Confirmed automation runs should create pending actions for Riley Brooks and Tyler Nguyen after reset/seed.",
       },
     };
   }

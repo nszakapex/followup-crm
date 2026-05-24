@@ -61,6 +61,14 @@ the destination summary, manual approval requirement, and the next operator
 action. Processed, skipped, blocked, and failed queue items are not actively
 sendable.
 
+Phase 10 keeps the CRM vertical-agnostic. Generic product surfaces should keep
+using reusable CRM language like leads, customers, follow-ups, review requests,
+and pending automation actions. If a business type resolves to
+`auto_detailing`, suggested messages and action reasons may mention detailing,
+vehicles, ceramic coating, or estimates, but the CRM itself should not become
+detailing-only. Unknown or unset business types use generic service-business
+templates.
+
 ## Pending automation action controls
 
 The detail page reuses the existing automation action server actions:

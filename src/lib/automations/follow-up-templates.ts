@@ -1,5 +1,10 @@
 import "server-only";
 
+import {
+  getAutomationTemplateForBusiness,
+  getWorkflowTemplate,
+} from "@/lib/business-verticals/verticals";
+
 type TemplateLead = {
   first_name: string | null;
   last_name?: string | null;
@@ -7,6 +12,7 @@ type TemplateLead = {
 
 type TemplateBusiness = {
   name: string | null;
+  industry?: string | null;
   google_review_link?: string | null;
 };
 
@@ -23,27 +29,39 @@ export type FollowUpTemplateKey =
   | "completed_customer_review_nudge";
 
 export const FOLLOW_UP_TEMPLATES: Record<FollowUpTemplateKey, string> = {
-  review_request_initial:
-    "Hi {{first_name}}, thank you for choosing {{business_name}}. Would you be willing to leave us an honest Google review? {{google_review_link}}",
-  review_request_followup_1:
-    "Hi {{first_name}}, just following up on our review request for {{business_name}}. If you have a minute, an honest review would really help. {{google_review_link}}",
-  review_request_followup_2:
-    "Hi {{first_name}}, one last quick note from {{business_name}}. If you are open to sharing feedback, here is the review link: {{google_review_link}}",
-  missed_call_initial:
-    "Hi {{first_name}}, this is {{business_name}}. Sorry we missed your call. What can we help you with?",
-  missed_call_followup_1:
-    "Hi {{first_name}}, checking back from {{business_name}} after your missed call. Reply here if you still need help.",
-  new_lead_initial:
-    "Hi {{first_name}}, this is {{business_name}}. Thanks for reaching out. What can we help you with?",
-  new_lead_followup_1:
-    "Hi {{first_name}}, just checking in from {{business_name}}. Are you still looking for help?",
-  stale_lead_checkin:
-    "Hi {{first_name}}, this is {{business_name}}. Checking in to see if you still need anything from us.",
-  no_response_followup:
-    "Hi {{first_name}}, we wanted to follow up once more. If you still need help, just reply here.",
-  completed_customer_review_nudge:
-    "Hi {{first_name}}, thank you again for choosing {{business_name}}. If you are willing, an honest review would help others find us: {{google_review_link}}",
+  review_request_initial: getWorkflowTemplate("generic_service_business", "review_request_initial"),
+  review_request_followup_1: getWorkflowTemplate("generic_service_business", "review_request_followup_1"),
+  review_request_followup_2: getWorkflowTemplate("generic_service_business", "review_request_followup_2"),
+  missed_call_initial: getWorkflowTemplate("generic_service_business", "missed_call_initial"),
+  missed_call_followup_1: getWorkflowTemplate("generic_service_business", "missed_call_followup_1"),
+  new_lead_initial: getWorkflowTemplate("generic_service_business", "new_lead_initial"),
+  new_lead_followup_1: getWorkflowTemplate("generic_service_business", "new_lead_followup_1"),
+  stale_lead_checkin: getWorkflowTemplate("generic_service_business", "stale_lead_checkin"),
+  no_response_followup: getWorkflowTemplate("generic_service_business", "no_response_followup"),
+  completed_customer_review_nudge: getWorkflowTemplate(
+    "generic_service_business",
+    "completed_customer_review_nudge"
+  ),
 };
+
+export function getFollowUpTemplateForBusiness({
+  business,
+  automationType,
+  templateKey,
+  currentTemplate,
+}: {
+  business: TemplateBusiness;
+  automationType?: string | null;
+  templateKey: FollowUpTemplateKey;
+  currentTemplate?: string | null;
+}) {
+  return getAutomationTemplateForBusiness({
+    business,
+    automationType,
+    templateKey,
+    currentTemplate,
+  });
+}
 
 export function renderFollowUpTemplate(
   template: string,
@@ -55,10 +73,14 @@ export function renderFollowUpTemplate(
     last_name: lead.last_name?.trim() || "",
     business_name: business.name?.trim() || "our team",
     google_review_link: business.google_review_link?.trim() || "",
+    firstName: lead.first_name?.trim() || "there",
+    lastName: lead.last_name?.trim() || "",
+    businessName: business.name?.trim() || "our team",
+    reviewLink: business.google_review_link?.trim() || "",
   };
 
   return template.replace(
-    /\{\{\s*(first_name|last_name|business_name|google_review_link)\s*\}\}/g,
+    /\{\{\s*(first_name|last_name|business_name|google_review_link|firstName|lastName|businessName|reviewLink)\s*\}\}/g,
     (_, key: keyof typeof values) => values[key] || ""
   );
 }

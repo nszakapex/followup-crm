@@ -5,6 +5,7 @@ import { createClient } from "@supabase/supabase-js";
 import { shouldSkipReviewDelivery } from "@/lib/messaging/provider-config";
 import { renderTemplate } from "@/lib/messaging/render-template";
 import type { DeliveryResult } from "@/lib/messaging/types";
+import { getWorkflowTemplate } from "@/lib/business-verticals/verticals";
 import { sendReviewProviderMessage } from "@/lib/reviews/provider-send-adapter";
 import { getReviewProviderReadiness } from "@/lib/reviews/provider-readiness";
 
@@ -78,6 +79,7 @@ type ServiceClient = ReturnType<typeof createServiceClient>;
 type BusinessRow = {
   id: string;
   name: string;
+  industry: string | null;
   google_review_link: string | null;
   twilio_from_number: string | null;
   resend_from_email: string | null;
@@ -85,7 +87,7 @@ type BusinessRow = {
 type ReviewInsertStatus = "pending" | "blocked" | "failed" | "duplicate_prevented";
 
 const DEFAULT_REVIEW_TEMPLATE =
-  "Hi {{first_name}}, thank you for choosing {{business_name}}. Would you mind leaving us an honest Google review? Here's the link: {{google_review_link}}";
+  getWorkflowTemplate("generic_service_business", "review_request_initial");
 const RECENT_DUPLICATE_WINDOW_DAYS = 7;
 
 function createServiceClient(url: string, serviceRoleKey: string) {
@@ -198,11 +200,19 @@ function renderReviewBody({
 }) {
   const { firstName, lastName } = getNameParts(customerName);
 
-  return renderTemplate(DEFAULT_REVIEW_TEMPLATE, {
+  const template =
+    getWorkflowTemplate(business.industry, "review_request_initial") ||
+    DEFAULT_REVIEW_TEMPLATE;
+
+  return renderTemplate(template, {
     first_name: firstName,
     last_name: lastName,
     business_name: business.name,
     google_review_link: reviewLink,
+    firstName,
+    lastName,
+    businessName: business.name,
+    reviewLink,
   });
 }
 
@@ -557,7 +567,7 @@ export async function sendReviewRequest(
   const supabase = createServiceClient(supabaseUrl, serviceRoleKey);
   const { data: business, error: businessError } = await supabase
     .from("businesses")
-    .select("id, name, google_review_link, twilio_from_number, resend_from_email")
+    .select("id, name, industry, google_review_link, twilio_from_number, resend_from_email")
     .eq("id", businessId)
     .maybeSingle();
 

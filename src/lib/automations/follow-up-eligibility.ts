@@ -12,6 +12,7 @@ import {
   getFollowUpRuleForAutomation,
   type FollowUpSequenceRule,
 } from "@/lib/automations/follow-up-sequences";
+import { getWorkflowReason } from "@/lib/business-verticals/verticals";
 
 const STOP_LEAD_STATUSES = new Set(["booked", "lost"]);
 const ACTIVE_ACTION_STATUSES = new Set<AutomationActionStatus>([
@@ -35,7 +36,7 @@ type AutomationLike = {
 };
 
 type FollowUpEligibilityParams = {
-  business: Pick<Business, "id" | "name" | "google_review_link">;
+  business: Pick<Business, "id" | "name" | "google_review_link" | "industry">;
   lead: Pick<
     Lead,
     | "id"
@@ -220,6 +221,7 @@ export function evaluateFollowUpEligibility({
   }
 
   const channel = automation.channel === "email" ? "email" : automation.channel === "sms" ? "sms" : null;
+  const operatorReason = getWorkflowReason(business.industry, rule.actionType, rule.operatorReason);
   const destination = channel ? normalizeAutomationDestination(channel, lead) : null;
   const destinationSummary = getAutomationDestinationSummary(channel, lead);
   const duplicateKey =
@@ -313,7 +315,7 @@ export function evaluateFollowUpEligibility({
     shouldSuppress,
     actionType: rule.actionType,
     queueActionType: rule.queueActionType,
-    reason: rule.operatorReason,
+    reason: operatorReason,
     suppressReason: shouldSuppress ? blockingIssues[0] : undefined,
     blockingIssues,
     warnings,

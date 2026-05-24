@@ -53,6 +53,12 @@ dedupe. An automation action may be skipped before queueing when a recent
 matching review request already exists, and final `sendReviewRequest` still
 re-checks review request dedupe before any provider path can run.
 
+Phase 10 allows review request body templates to come from the selected
+business workflow type. Unknown or unset business types use the generic service
+business wording. `auto_detailing` can provide detailing-specific review
+request copy for beta/demo businesses, but the send lifecycle, duplicate
+prevention, provider readiness, and manual confirmation rules are unchanged.
+
 ## Send Paths
 
 Direct review requests and manual automation action approval both use the hardened review request lifecycle.

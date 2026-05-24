@@ -5,9 +5,9 @@ import { Zap, MessageSquare, Star, ArrowRight, CheckCircle } from "lucide-react"
 const features = [
   {
     icon: Zap,
-    title: "Automatic Follow-Ups",
+    title: "Manual Follow-Up Queue",
     description:
-      "New leads get an instant reply. If they don't respond, follow-ups go out at 24 hours and 3 days — automatically.",
+      "New leads can produce clear follow-up actions that operators review and approve one at a time.",
   },
   {
     icon: MessageSquare,
@@ -25,7 +25,7 @@ const features = [
 
 const benefits = [
   "Capture leads from your website or forms",
-  "Follow up automatically by SMS or email",
+  "Create manual follow-up actions for SMS or email",
   "See who needs attention with AI summaries",
   "Request Google reviews from real customers",
   "Works standalone or alongside your existing CRM",
@@ -58,11 +58,11 @@ export default function LandingPage() {
       {/* Hero */}
       <section className="mx-auto max-w-5xl px-6 py-20 text-center">
         <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl max-w-3xl mx-auto leading-tight">
-          Capture leads, follow up automatically, and earn more Google reviews
+          Capture leads, manage follow-ups, and earn more Google reviews
         </h1>
         <p className="mt-6 text-lg text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-          A simple CRM with the follow-up already built in. No complicated software
-          to learn. Just leads, follow-ups, and reviews — handled for you.
+          A simple CRM with reviewable follow-up workflows built in. No complicated
+          software to learn. Just leads, follow-ups, and reviews in one place.
         </p>
         <div className="mt-8 flex items-center justify-center gap-4">
           <Button size="lg" render={<Link href="/signup" />}>
@@ -115,11 +115,11 @@ export default function LandingPage() {
       {/* CTA */}
       <section className="mx-auto max-w-5xl px-6 py-16 text-center">
         <h2 className="text-2xl font-semibold">
-          Stop losing leads to slow follow-ups
+          Stop losing leads to unclear follow-up
         </h2>
         <p className="mt-3 text-muted-foreground max-w-lg mx-auto">
-          Most leads go cold within an hour. FollowUp makes sure every lead gets a
-          response — instantly — so you can focus on doing great work.
+          Most leads go cold quickly. FollowUp shows who needs attention and what
+          action to take next, so you can focus on doing great work.
         </p>
         <Button size="lg" className="mt-6" render={<Link href="/signup" />}>
           Get started free

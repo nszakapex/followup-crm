@@ -5,8 +5,11 @@ import { updateBusinessSettings } from "@/app/actions/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { getBusinessVerticalOptions } from "@/lib/business-verticals/verticals";
 import { Loader2 } from "lucide-react";
 import type { Business } from "@/types/database";
+
+const verticalOptions = getBusinessVerticalOptions();
 
 export function BusinessSettingsForm({ business }: { business: Business }) {
   const [isPending, startTransition] = useTransition();
@@ -47,8 +50,16 @@ export function BusinessSettingsForm({ business }: { business: Business }) {
           id="industry"
           name="industry"
           defaultValue={business.industry || ""}
-          placeholder="e.g. Restaurant, Contractor, Salon"
+          list="business-vertical-options"
+          placeholder="e.g. Restaurant, Contractor, Auto detailing"
         />
+        <datalist id="business-vertical-options">
+          {verticalOptions.map((vertical) => (
+            <option key={vertical.id} value={vertical.id}>
+              {vertical.label}
+            </option>
+          ))}
+        </datalist>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">

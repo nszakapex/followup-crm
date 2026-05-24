@@ -138,7 +138,7 @@ export default function OnboardingPage() {
               <div className="space-y-2">
                 <Label>Industry</Label>
                 <Input
-                  placeholder="e.g. Plumbing, Restaurant, Salon"
+                  placeholder="e.g. Plumbing, Restaurant, Auto detailing"
                   value={industry}
                   onChange={(e) => setIndustry(e.target.value)}
                 />
@@ -177,16 +177,18 @@ export default function OnboardingPage() {
         {currentStep === 1 && (
           <>
             <CardHeader>
-              <CardTitle>Set up automatic follow-ups</CardTitle>
+              <CardTitle>Set up follow-up actions</CardTitle>
               <CardDescription>
-                Turn these on so you never miss a lead. You can change these anytime.
+                Turn these on to create reviewable follow-up actions. You can change these anytime.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium text-sm">Instant reply to new leads</p>
-                  <p className="text-xs text-muted-foreground">Send immediately when a lead comes in</p>
+                  <p className="text-xs text-muted-foreground">
+                    Queue a same-day response for manual approval
+                  </p>
                 </div>
                 <Switch checked={instantReply} onCheckedChange={setInstantReply} />
               </div>
@@ -207,7 +209,9 @@ export default function OnboardingPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium text-sm">Preferred channel</p>
-                  <p className="text-xs text-muted-foreground">How follow-ups are sent</p>
+                  <p className="text-xs text-muted-foreground">
+                    How follow-ups are suggested before manual sending
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   <Button
@@ -255,7 +259,7 @@ export default function OnboardingPage() {
                 <div>
                   <p className="font-medium text-sm">Enable review requests</p>
                   <p className="text-xs text-muted-foreground">
-                    Automatically send after a job is marked completed
+                    Queue review requests after a job is marked completed
                   </p>
                 </div>
                 <Switch checked={reviewRequestsEnabled} onCheckedChange={setReviewRequestsEnabled} />
@@ -326,8 +330,8 @@ export default function OnboardingPage() {
               </div>
               <CardTitle>Your follow-up and review system is ready.</CardTitle>
               <CardDescription>
-                Leads will be captured, followed up automatically, and customers can be
-                sent honest review requests — all without you lifting a finger.
+                Leads can be captured, follow-up actions can be queued, and customers can be
+                sent honest review requests after manual approval.
               </CardDescription>
             </CardHeader>
             <CardContent className="flex justify-center">
