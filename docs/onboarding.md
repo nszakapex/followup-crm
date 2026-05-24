@@ -58,6 +58,12 @@ intentional live provider/channel with one test lead. Provider secrets remain
 server-only, and scheduled automation routes still cannot send provider
 messages.
 
+Phase 8A must pass before configuring a real provider. It confirms duplicate
+prevention uses the same destination-aware dedupe identity in preflight and
+final send, and that operator-visible failure reasons are sanitized. Raw
+provider diagnostics may be logged server-side for debugging, but they are not
+stored as user-facing review request reasons or shown in setup/readiness UI.
+
 ### SMS Readiness
 
 SMS readiness is determined server-side from safe booleans only.

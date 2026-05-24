@@ -80,6 +80,18 @@ function normalizePhone(value: string | null) {
   return digits || value?.trim() || null;
 }
 
+function getDedupeContact({
+  channel,
+  phone,
+  email,
+}: {
+  channel: ReviewProviderChannel;
+  phone: string | null;
+  email: string | null;
+}) {
+  return channel === "sms" ? normalizePhone(phone) : normalizeEmail(email);
+}
+
 function getDestinationSummary(channel: ReviewProviderChannel, lead: LeadRow | null) {
   if (!lead) return "No customer selected";
 
@@ -110,8 +122,10 @@ function buildDedupeKey({
   phone: string | null;
   email: string | null;
 }) {
-  const contact = channel === "sms" ? normalizePhone(phone) : normalizeEmail(email);
-  return `review_request:${businessId}:lead:${leadId}:${channel}:${contact ?? "missing"}`;
+  const contact = getDedupeContact({ channel, phone, email });
+  if (!contact) return null;
+
+  return `review_request:${businessId}:lead:${leadId}:${channel}:${contact}`;
 }
 
 async function findDuplicateRisk(
@@ -130,28 +144,14 @@ async function findDuplicateRisk(
     .from("review_requests")
     .select("id, status, created_at")
     .eq("business_id", params.businessId)
-    .eq("lead_id", params.leadId)
-    .eq("channel", params.channel)
-    .gte("created_at", since.toISOString())
-    .in("status", ["pending", "sent", "clicked", "completed"])
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  if (error) return { duplicateFound: false, error: error.message };
-  if (data && data.length > 0) return { duplicateFound: true, error: null };
-
-  const byKey = await supabase
-    .from("review_requests")
-    .select("id, status, created_at")
-    .eq("business_id", params.businessId)
     .eq("dedupe_key", params.dedupeKey)
     .gte("created_at", since.toISOString())
     .in("status", ["pending", "sent", "clicked", "completed"])
     .order("created_at", { ascending: false })
     .limit(1);
 
-  if (byKey.error) return { duplicateFound: false, error: byKey.error.message };
-  return { duplicateFound: Boolean(byKey.data?.length), error: null };
+  if (error) return { duplicateFound: false, error: error.message };
+  return { duplicateFound: Boolean(data?.length), error: null };
 }
 
 function getConfirmationCopy({

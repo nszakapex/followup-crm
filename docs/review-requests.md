@@ -33,13 +33,15 @@ Blocked means no SMS or email provider call was made. Common blocked reasons:
 - Customer phone or email is missing for the requested channel.
 - The customer opted out of SMS review requests.
 
-Failed means the app attempted the delivery helper and it returned a failure. Provider secrets and raw provider payloads are not shown in the UI or stored in audit logs.
+Failed means the app attempted the delivery helper and it returned a failure. UI and persisted failure reasons are sanitized. Raw provider details may be logged server-side for debugging, but provider secrets, auth headers, raw provider payloads, and stack traces are not returned to the browser or stored as user-facing reasons.
 
 ## Duplicate Prevention
 
-The app prevents another review request to the same business, lead, channel, and contact method within the recent duplicate window. The dedupe key is business-scoped and does not cross businesses.
+The app prevents another review request to the same business, lead/contact, channel, and destination identity within the recent duplicate window. The dedupe key is business-scoped and includes the normalized destination, so a request to a different destination is not blocked by an earlier destination-specific request.
 
 Duplicate-prevented attempts are audited with `review_request.duplicate_prevented`. They do not send provider messages.
+
+Preflight duplicate checks use the same dedupe-key identity, but final send remains authoritative. If preflight misses a recent duplicate, `sendReviewRequest` still records `duplicate_prevented` before any provider call.
 
 ## Send Paths
 
@@ -260,6 +262,29 @@ keys, and unsafe provider payloads are never returned to the browser.
 - Provider/helper failures record `failed` after the send path starts.
 - Duplicate attempts record `duplicate_prevented` and do not call the provider.
 - Test/skip mode records `not_attempted` and does not call the provider.
+
+Failure reasons shown to operators and stored on review request lifecycle fields are safe summaries only, such as `SMS delivery failed.` or `Email delivery failed.`. Raw provider diagnostics remain server-side only.
+
+### Phase 8A Pre-Provider Validation
+
+Phase 8A must pass before configuring Resend, Twilio, or another live provider
+for controlled validation.
+
+Duplicate prevention uses the same destination-aware identity in preflight and
+final send:
+
+```text
+business + lead/contact/customer + channel + normalized destination
+```
+
+The final `sendReviewRequest` check is authoritative. Preflight can warn or
+block when it sees a duplicate, but final send still checks the dedupe key
+before any provider call and records `duplicate_prevented` when needed.
+
+Provider/helper failures are sanitized before they are stored on
+`review_requests` or returned to UI. Server logs may contain safe debugging
+context, but raw provider details, auth headers, tokens, API keys, stack
+traces, and raw provider response bodies are not user-facing lifecycle text.
 
 ### Safe Validation Checklist
 

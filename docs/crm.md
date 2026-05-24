@@ -49,6 +49,12 @@ as sent, blocked, failed, duplicate-prevented, or test/skipped. No customer or
 lead detail page contains send-all, bulk-send, cron-send, or retry-send
 controls.
 
+Phase 8A keeps that model unchanged while tightening two pre-provider safety
+details. Duplicate-prevented timeline/history entries now reflect the exact
+dedupe identity: business, lead/contact, channel, and normalized destination.
+Failed entries continue to show safe operator-facing summaries only; raw
+provider/helper diagnostics stay server-side and are not rendered in the CRM.
+
 ## Pending automation action controls
 
 The detail page reuses the existing automation action server actions:

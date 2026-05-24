@@ -688,7 +688,8 @@ export default async function AutomationsPage() {
                             label={
                               preflightByActionId.get(action.id)?.mode === "live"
                                 ? "Approve & send live"
-                                : "Approve & send"
+                                : preflightByActionId.get(action.id)?.submitLabel ??
+                                  "Approve & send"
                             }
                             confirmationTitle={
                               preflightByActionId.get(action.id)?.confirmationTitle ??

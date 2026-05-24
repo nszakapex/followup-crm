@@ -653,6 +653,18 @@ Phase 8 keeps automation provider sends blocked. Controlled provider
 validation is limited to one manual operator-approved send path. Automation
 runs and scheduled runs continue to create pending review actions only.
 
+Phase 8A tightens the manual send duplicate policy used after an operator
+approves one action. Duplicate prevention is based on the review request
+dedupe identity: business, lead/contact, channel, and normalized destination.
+Changing the destination creates a different dedupe identity; repeating the
+same destination inside the duplicate window is still blocked before any
+provider call.
+
+Provider/helper failure text shown to operators or stored on review request
+records is sanitized. Raw provider diagnostics are server-side only and must
+not be copied into automation action metadata, review request reasons, or UI
+messages.
+
 ## Phase 6F Production Cron Scheduling
 
 Phase 6F adds a scheduler-oriented endpoint and business-level scheduling settings. The scheduler creates reviewable work only. It does not send SMS, email, or review requests.

@@ -33,10 +33,6 @@ function isDevelopment() {
   return process.env.NODE_ENV !== "production";
 }
 
-function withDevDetail(userMessage: string, detail?: string | null) {
-  return isDevelopment() && detail ? `${userMessage} ${detail}` : userMessage;
-}
-
 async function logEmailMessage({
   businessId,
   leadId,
@@ -72,13 +68,15 @@ async function logEmailMessage({
 }
 
 function messageLogFailure(message: string): DeliveryResult {
+  if (isDevelopment()) {
+    console.warn("[messaging.email] Failed to log email message", { message });
+  }
+
   return {
     success: false,
     provider: "resend",
     providerMessageId: null,
-    error: isDevelopment()
-      ? `Failed to log email message: ${message}`
-      : "Failed to log message.",
+    error: "Failed to log message.",
     userMessage: "Failed to log message.",
   };
 }
@@ -156,9 +154,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
         providerMessageId: null,
         providerStatus: "skipped",
         skipped: true,
-        error: isDevelopment()
-          ? `Failed to log email message: ${messageError.message}`
-          : "Failed to log message.",
+        error: "Failed to log message.",
         userMessage: "Failed to log message.",
       };
     }
@@ -193,7 +189,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
       provider: "resend",
       providerMessageId: null,
       providerStatus: "blocked",
-      error: withDevDetail(userMessage, readiness.reason),
+      error: userMessage,
       userMessage,
     };
   }
@@ -243,7 +239,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
         provider: "resend",
         providerMessageId: null,
         providerStatus: "failed",
-        error: withDevDetail(userMessage, detail),
+        error: userMessage,
         userMessage,
       };
     }
@@ -292,7 +288,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
       provider: "resend",
       providerMessageId: null,
       providerStatus: "failed",
-      error: withDevDetail(userMessage, detail),
+      error: userMessage,
       userMessage,
     };
   }

@@ -148,6 +148,18 @@ function normalizePhone(value: string | null) {
   return digits || value?.trim() || null;
 }
 
+function getDedupeContact({
+  channel,
+  phone,
+  email,
+}: {
+  channel: "sms" | "email";
+  phone: string | null;
+  email: string | null;
+}) {
+  return channel === "sms" ? normalizePhone(phone) : normalizeEmail(email);
+}
+
 function buildDedupeKey({
   businessId,
   leadId,
@@ -161,8 +173,10 @@ function buildDedupeKey({
   phone: string | null;
   email: string | null;
 }) {
-  const contact = channel === "sms" ? normalizePhone(phone) : normalizeEmail(email);
-  return `review_request:${businessId}:lead:${leadId}:${channel}:${contact ?? "missing"}`;
+  const contact = getDedupeContact({ channel, phone, email });
+  if (!contact) return null;
+
+  return `review_request:${businessId}:lead:${leadId}:${channel}:${contact}`;
 }
 
 function getNameParts(customerName: string) {
@@ -262,28 +276,14 @@ async function findRecentDuplicate(
     .from("review_requests")
     .select("id, status, created_at")
     .eq("business_id", params.businessId)
-    .eq("lead_id", params.leadId)
-    .eq("channel", params.channel)
-    .gte("created_at", since.toISOString())
-    .in("status", ["pending", "sent", "clicked", "completed"])
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  if (error) return { duplicate: null, error };
-  if (data && data.length > 0) return { duplicate: data[0], error: null };
-
-  const byKey = await supabase
-    .from("review_requests")
-    .select("id, status, created_at")
-    .eq("business_id", params.businessId)
     .eq("dedupe_key", params.dedupeKey)
     .gte("created_at", since.toISOString())
     .in("status", ["pending", "sent", "clicked", "completed"])
     .order("created_at", { ascending: false })
     .limit(1);
 
-  if (byKey.error) return { duplicate: null, error: byKey.error };
-  return { duplicate: byKey.data?.[0] ?? null, error: null };
+  if (error) return { duplicate: null, error };
+  return { duplicate: data?.[0] ?? null, error: null };
 }
 
 async function createReviewRequestRecord(
@@ -640,6 +640,7 @@ export async function sendReviewRequest(
   }
 
   const dedupeKey = buildDedupeKey({ businessId, leadId, channel, phone, email });
+  const fallbackDedupeKey = `review_request:${businessId}:lead:${leadId}:${channel}:missing`;
   const blockParams = {
     businessId,
     userId: authenticatedUserId,
@@ -649,7 +650,7 @@ export async function sendReviewRequest(
     email,
     channel,
     business: businessRow,
-    dedupeKey,
+    dedupeKey: dedupeKey ?? fallbackDedupeKey,
     source,
     automationActionId,
   };
@@ -679,6 +680,16 @@ export async function sendReviewRequest(
     return createBlockedRequest(supabase, {
       ...blockParams,
       reason: "Customer email is required for email review requests.",
+    });
+  }
+
+  if (!dedupeKey) {
+    return createBlockedRequest(supabase, {
+      ...blockParams,
+      reason:
+        channel === "sms"
+          ? "Customer phone number is required for SMS review requests."
+          : "Customer email is required for email review requests.",
     });
   }
 

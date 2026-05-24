@@ -33,10 +33,6 @@ function isDevelopment() {
   return process.env.NODE_ENV !== "production";
 }
 
-function withDevDetail(userMessage: string, detail?: string | null) {
-  return isDevelopment() && detail ? `${userMessage} ${detail}` : userMessage;
-}
-
 async function logSmsMessage({
   businessId,
   leadId,
@@ -72,13 +68,15 @@ async function logSmsMessage({
 }
 
 function messageLogFailure(provider: DeliveryResult["provider"], message: string): DeliveryResult {
+  if (isDevelopment()) {
+    console.warn("[messaging.sms] Failed to log SMS message", { message });
+  }
+
   return {
     success: false,
     provider,
     providerMessageId: null,
-    error: isDevelopment()
-      ? `Failed to log SMS message: ${message}`
-      : "Failed to log message.",
+    error: "Failed to log message.",
     userMessage: "Failed to log message.",
   };
 }
@@ -204,7 +202,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
       provider: "twilio",
       providerMessageId: null,
       providerStatus: "blocked",
-      error: withDevDetail(userMessage, readiness.reason),
+      error: userMessage,
       userMessage,
     };
   }
@@ -264,7 +262,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
         provider: "twilio",
         providerMessageId: null,
         providerStatus: "failed",
-        error: withDevDetail(userMessage, detail),
+        error: userMessage,
         userMessage,
       };
     }
@@ -313,7 +311,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
       provider: "twilio",
       providerMessageId: null,
       providerStatus: "failed",
-      error: withDevDetail(userMessage, detail),
+      error: userMessage,
       userMessage,
     };
   }
