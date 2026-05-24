@@ -32,13 +32,13 @@ import { MetricCard } from "@/components/ui/metric-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { getAutomationActionSendPreflight } from "@/lib/automations/action-preflight";
 import { getLeadDetail, type ContactTimelineItem } from "@/lib/crm/contact-detail";
 import {
   getReviewRequestLifecycle,
   getReviewRequestRetryEligibility,
   getSafeReviewRequestDestination,
 } from "@/lib/reviews/lifecycle";
-import { getManualReviewSendPreflight } from "@/lib/reviews/send-preflight";
 import { createClient } from "@/lib/supabase/server";
 import type { AutomationActionRecord, LeadStatus, Message, ReviewRequest } from "@/types/database";
 
@@ -213,20 +213,13 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
     : null;
   const pendingPreflightEntries = await Promise.all(
     pendingAutomationActions
-      .filter(
-        (action) =>
-          action.action_type === "review_request" &&
-          action.lead_id &&
-          (action.channel === "sms" || action.channel === "email")
-      )
+      .filter(isPotentiallySendable)
       .map(async (action) => {
-        const preflight = await getManualReviewSendPreflight(supabase, {
-          businessId: profile.business_id,
-          leadId: action.lead_id!,
-          channel: action.channel as "sms" | "email",
-          source: "automation_action_manual",
-          automationActionId: action.id,
-        });
+        const preflight = await getAutomationActionSendPreflight(
+          supabase,
+          profile.business_id,
+          action.id
+        );
 
         return [action.id, preflight] as const;
       })
@@ -376,6 +369,15 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                         </p>
                       )}
 
+                      <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                        <Badge variant="outline" className="border-border/70 bg-background">
+                          {action.reason_code?.replaceAll("_", " ") ?? action.action_type}
+                        </Badge>
+                        <Badge variant="outline" className="border-border/70 bg-background">
+                          Manual approval required
+                        </Badge>
+                      </div>
+
                       {!isPotentiallySendable(action) && (
                         <div className="mt-4 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-sm leading-6 text-amber-700 dark:text-amber-300">
                           This action needs a linked lead and SMS or email channel before it can be sent.
@@ -395,11 +397,17 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                           <p className="mt-2 text-xs leading-5 text-muted-foreground">
                             {preflightByActionId.get(action.id)?.confirmationBody}
                           </p>
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                            Destination: {preflightByActionId.get(action.id)?.destinationSummary}
+                          </p>
                           {preflightByActionId.get(action.id)?.blockingIssues.length ? (
                             <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
                               {preflightByActionId.get(action.id)?.blockingIssues[0]}
                             </p>
                           ) : null}
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                            {preflightByActionId.get(action.id)?.nextOperatorAction}
+                          </p>
                         </div>
                       )}
 
@@ -416,7 +424,7 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                                   preflightByActionId.get(action.id)?.mode === "live"
                                     ? "Approve & send live"
                                     : preflightByActionId.get(action.id)?.submitLabel ??
-                                      "Approve & send"
+                                      "Approve & send manually"
                                 }
                                 confirmationTitle={
                                   preflightByActionId.get(action.id)?.confirmationTitle ??

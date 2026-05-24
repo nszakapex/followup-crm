@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PROGRESSED_STATUSES = new Set(["booked", "completed", "review_requested", "lost"]);
+const ACTIVE_ACTION_STATUSES = ["pending_review", "approved_pending_send", "sent", "blocked", "send_failed"];
 const LEAD_SELECT =
   "id, first_name, last_name, phone, email, source, status, notes, opted_out, created_at, last_contacted_at";
 const AUTOMATION_SELECT =
@@ -179,21 +180,94 @@ function validateContact(automation, lead) {
   return null;
 }
 
-function getActionKey(automation, lead) {
+function normalizeDestination(channel, lead) {
+  if (channel === "sms") {
+    const digits = (lead.phone || "").replace(/\D/g, "");
+    return digits || (lead.phone || "").trim() || null;
+  }
+
+  if (channel === "email") {
+    return (lead.email || "").trim().toLowerCase() || null;
+  }
+
+  return null;
+}
+
+function getDestinationSummary(channel, lead) {
+  if (channel === "sms") {
+    const digits = (lead.phone || "").replace(/\D/g, "");
+    if (digits.length >= 4) return `SMS ending in ${digits.slice(-4)}`;
+    return lead.phone ? "SMS destination recorded" : "No SMS destination";
+  }
+
+  if (channel === "email") {
+    const [local, domain] = (lead.email || "").split("@");
+    if (local && domain) return `${local.charAt(0)}${local.length > 1 ? "***" : ""}@${domain}`;
+    return lead.email ? "Email destination recorded" : "No email destination";
+  }
+
+  return "No send destination";
+}
+
+function getSequenceActionType(automation, match) {
+  if (match.action === "create_review_request") return "review_request_initial";
+  if (automation.type === "missed_call_textback") return "missed_call_initial";
+  if (automation.type === "instant_lead_reply") return "new_lead_initial";
+  if (automation.type === "twenty_four_hour_followup") return "new_lead_followup_1";
+  if (automation.type === "three_day_followup") return "no_response_followup";
+  return automation.type;
+}
+
+function getActionKey(automation, lead, match, business) {
+  const destination = normalizeDestination(automation.channel, lead);
+  if (!destination) return null;
+
+  return `automation:${business.id}:lead:${lead.id}:${getSequenceActionType(automation, match)}:${automation.channel}:${destination}`;
+}
+
+function getLegacyActionKey(automation, lead) {
   return `automation:${automation.type}:lead:${lead.id}`;
 }
 
-async function hasDuplicateAction(supabase, businessId, actionKey) {
+function getReviewRequestDedupeKey(business, automation, lead) {
+  const destination = normalizeDestination(automation.channel, lead);
+  if (!destination) return null;
+
+  return `review_request:${business.id}:lead:${lead.id}:${automation.channel}:${destination}`;
+}
+
+async function hasDuplicateAction(supabase, businessId, actionKeys) {
   const { data, error } = await supabase
     .from("automation_actions")
     .select("id")
     .eq("business_id", businessId)
-    .eq("dedupe_key", actionKey)
-    .in("status", ["pending_review", "approved_pending_send", "sent"])
+    .in("dedupe_key", actionKeys)
+    .in("status", ACTIVE_ACTION_STATUSES)
     .limit(1);
 
   if (error) return { duplicate: false, error };
 
+  return { duplicate: Boolean(data && data.length > 0), error: null };
+}
+
+async function hasDuplicateReviewRequest(supabase, businessId, dedupeKey) {
+  if (!dedupeKey) return { duplicate: false, error: null };
+
+  const since = new Date();
+  since.setDate(since.getDate() - 7);
+
+  const { data, error } = await supabase
+    .from("review_requests")
+    .select("id")
+    .eq("business_id", businessId)
+    .eq("dedupe_key", dedupeKey)
+    .gte("created_at", since.toISOString())
+    .or(
+      "status.in.(pending,sent,clicked,completed,duplicate_prevented),send_status.in.(not_attempted,skipped,sent,duplicate_prevented)"
+    )
+    .limit(1);
+
+  if (error) return { duplicate: false, error };
   return { duplicate: Boolean(data && data.length > 0), error: null };
 }
 
@@ -267,6 +341,7 @@ function buildActionMetadata(automation, lead, match, business, now) {
     candidateType: "lead",
     automationId: automation.id,
     automationType: automation.type,
+    sequenceActionType: getSequenceActionType(automation, match),
     automationName: automation.name,
     automationChannel: automation.channel,
     eligibilityAction: match.action,
@@ -275,6 +350,9 @@ function buildActionMetadata(automation, lead, match, business, now) {
     leadSource: lead.source || null,
     daysSinceCreated,
     lastContactedAt: lead.last_contacted_at || null,
+    destinationSummary: getDestinationSummary(automation.channel, lead),
+    manualApprovalRequired: true,
+    nextOperatorAction: "Review and manually approve this action when ready.",
     reviewLinkConfigured: Boolean(business.google_review_link),
     providerDelivery: "not_called",
   };
@@ -303,7 +381,7 @@ async function createPendingAutomationAction(
       summary: getActionSummary(automation, lead, match),
       suggested_message: body,
       reason: getActionReason(automation, lead, match),
-      reason_code: automation.type,
+      reason_code: getSequenceActionType(automation, match),
       source: "automation_run",
       run_id: null,
       audit_log_id: null,
@@ -492,8 +570,19 @@ export async function runAutomationsCore(options) {
         continue;
       }
 
-      const actionKey = getActionKey(automation, lead);
-      const duplicateCheck = await hasDuplicateAction(supabase, businessId, actionKey);
+      const actionKey = getActionKey(automation, lead, match, business);
+      const legacyActionKey = getLegacyActionKey(automation, lead);
+
+      if (!actionKey) {
+        skipped += 1;
+        results.push(makeResult(automation, lead, "skipped", "Destination identity is required."));
+        continue;
+      }
+
+      const duplicateCheck = await hasDuplicateAction(supabase, businessId, [
+        actionKey,
+        legacyActionKey,
+      ]);
 
       if (duplicateCheck.error) {
         failures += 1;
@@ -521,6 +610,42 @@ export async function runAutomationsCore(options) {
           )
         );
         continue;
+      }
+
+      if (match.action === "create_review_request") {
+        const reviewDuplicateCheck = await hasDuplicateReviewRequest(
+          supabase,
+          businessId,
+          getReviewRequestDedupeKey(business, automation, lead)
+        );
+
+        if (reviewDuplicateCheck.error) {
+          failures += 1;
+          results.push(
+            makeResult(
+              automation,
+              lead,
+              "failed",
+              getDatabaseError("Review request duplicate lookup failed", reviewDuplicateCheck.error.message)
+            )
+          );
+          continue;
+        }
+
+        if (reviewDuplicateCheck.duplicate) {
+          skipped += 1;
+          duplicatesPrevented += 1;
+          results.push(
+            makeResult(
+              automation,
+              lead,
+              "skipped",
+              "Duplicate review request skipped.",
+              true
+            )
+          );
+          continue;
+        }
       }
 
       eligible += 1;

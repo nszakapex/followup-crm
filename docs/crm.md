@@ -55,6 +55,12 @@ dedupe identity: business, lead/contact, channel, and normalized destination.
 Failed entries continue to show safe operator-facing summaries only; raw
 provider/helper diagnostics stay server-side and are not rendered in the CRM.
 
+Phase 9 adds follow-up planning context to the same manual queue. Lead detail
+and Automations show why a follow-up action exists, the sequence/action type,
+the destination summary, manual approval requirement, and the next operator
+action. Processed, skipped, blocked, and failed queue items are not actively
+sendable.
+
 ## Pending automation action controls
 
 The detail page reuses the existing automation action server actions:
@@ -87,6 +93,7 @@ No AI is used and no action is created automatically.
 - No automatic SMS or email sends were added.
 - No cron sends were added.
 - No bulk messaging or send-all behavior was added.
+- No retry send or send-anyway duplicate bypass was added.
 - No browser secret exposure was added.
 - Business scoping is enforced by querying the active user's `users.business_id`.
 - Cross-business records are not shown.

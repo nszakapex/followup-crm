@@ -378,7 +378,7 @@ Do not store secrets, auth headers, provider credentials, or raw customer payloa
 The runner creates a stable dedupe key:
 
 ```text
-automation:<automationType>:lead:<leadId>
+automation:<businessId>:lead:<leadId>:<sequenceActionType>:<channel>:<normalizedDestination>
 ```
 
 `automation_actions` has a partial unique index for active action keys:
@@ -390,6 +390,10 @@ business_id + dedupe_key where status in ('pending_review', 'approved_pending_se
 Running the same confirmed automation twice should skip duplicate active pending actions and increase `duplicatesPrevented`. Sent actions also keep the same automation/customer/reason combination from immediately creating another pending card.
 
 Reviewed or dismissed actions are no longer active pending actions, so a future confirmed run may create a fresh reviewable action for the same lead/automation if that is still eligible.
+
+Phase 9 also checks the legacy `automation:<automationType>:lead:<leadId>` key
+so older pending actions are not duplicated after the destination-aware key
+format is introduced.
 
 ### Automations Page
 
@@ -518,7 +522,9 @@ There is no `send all` control and no client-visible automation secret.
 
 Review request actions use the existing review request flow. That flow creates a `review_requests` row, uses the tracked review link, and then uses the existing SMS/email delivery helpers.
 
-Follow-up message actions use the existing SMS/email delivery helpers directly with the queued suggested message.
+Follow-up message actions use the same manual queue safety pattern. The UI now
+shows server-side preflight, destination summary, delivery mode, and live-send
+confirmation copy before one queued follow-up is approved.
 
 Delivery helpers still obey:
 
@@ -627,6 +633,44 @@ Expected:
 
 - `400`
 - no provider send occurs
+
+## Phase 9 Follow-Up Planning and Manual Queue Hardening
+
+Phase 9 adds a follow-up planning layer without adding automatic sends.
+Follow-up sequence rules live in code and describe:
+
+- action type and trigger condition
+- eligible lead statuses
+- recommended channel and delay
+- operator-facing reason
+- manual approval requirement
+- destination-aware dedupe identity
+- stop/suppression conditions
+
+Queueing remains idempotent. Running the planner or confirmed automation runner
+twice should not create duplicate active pending actions for the same business,
+lead, sequence action, channel, and destination. Review request actions also
+check recent destination-aware review request dedupe before queueing.
+
+Stop/suppression rules prevent unsafe or redundant queue items when:
+
+- the customer opted out
+- the lead has no valid destination
+- the channel is unsupported
+- a matching active/processed automation action already exists
+- a matching recent review request already exists
+- the review link was already clicked/completed
+- the lead has not reached the recommended delay
+- the lead status does not match the sequence rule
+
+Pending queue cards now show action type, manual approval requirement,
+destination/readiness copy, duplicate protection, and next operator action.
+There is still no send-all, bulk approve, retry send, cron send, or scheduled
+provider delivery.
+
+Manual follow-up sends still use the existing server-side send path. Live mode
+requires explicit confirmation; test/skip mode records a safe handled outcome
+and calls no provider.
 
 ## Phase 7C Review Request Delivery Reliability
 

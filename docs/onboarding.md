@@ -64,6 +64,12 @@ final send, and that operator-visible failure reasons are sanitized. Raw
 provider diagnostics may be logged server-side for debugging, but they are not
 stored as user-facing review request reasons or shown in setup/readiness UI.
 
+Phase 9 adds follow-up planning and manual queue readiness. Scheduled checks
+and confirmed automation runs may create pending follow-up actions, but those
+actions still require one-at-a-time operator review. Queueing is idempotent,
+stop conditions suppress unsafe/redundant follow-ups, and provider delivery
+never starts from cron or the browser.
+
 ### SMS Readiness
 
 SMS readiness is determined server-side from safe booleans only.
@@ -179,3 +185,4 @@ Regression:
 - `/api/automations/scheduled-run` still rejects `allowProviderSends:true`
 - cron does not send messages
 - provider sends happen only after a logged-in operator clicks one manual send action
+- follow-up queue actions remain manual, duplicate-protected, and repeat-click safe

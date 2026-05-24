@@ -48,6 +48,11 @@ window. A request recorded with `send_status = not_attempted` or `skipped`
 prevents repeated clicks from creating unlimited additional skipped rows for
 the same business, lead/contact, channel, and destination identity.
 
+Phase 9 keeps review request send dedupe separate from automation action
+dedupe. An automation action may be skipped before queueing when a recent
+matching review request already exists, and final `sendReviewRequest` still
+re-checks review request dedupe before any provider path can run.
+
 ## Send Paths
 
 Direct review requests and manual automation action approval both use the hardened review request lifecycle.

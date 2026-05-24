@@ -38,6 +38,7 @@ import {
   listRecentAutomationActions,
   type AutomationActionQueueItem,
 } from "@/lib/automations/action-queue";
+import { getAutomationActionSendPreflight } from "@/lib/automations/action-preflight";
 import { ensureDefaultAutomations } from "@/lib/automations/ensure-defaults";
 import {
   getAutomationRunHistory,
@@ -45,7 +46,6 @@ import {
 } from "@/lib/automations/run-history";
 import { getAutomationScheduleForBusiness } from "@/lib/automations/schedule";
 import { getBusinessReadiness } from "@/lib/onboarding/readiness";
-import { getManualReviewSendPreflight } from "@/lib/reviews/send-preflight";
 import { createClient } from "@/lib/supabase/server";
 import type { Automation, AutomationType, MessageChannel } from "@/types/database";
 
@@ -244,20 +244,13 @@ export default async function AutomationsPage() {
   );
   const preflightEntries = await Promise.all(
     pendingActions
-      .filter(
-        (action) =>
-          action.action_type === "review_request" &&
-          action.leadId &&
-          (action.channel === "sms" || action.channel === "email")
-      )
+      .filter(isPotentiallySendable)
       .map(async (action) => {
-        const preflight = await getManualReviewSendPreflight(supabase, {
-          businessId: profile.business_id,
-          leadId: action.leadId!,
-          channel: action.channel as "sms" | "email",
-          source: "automation_action_manual",
-          automationActionId: action.id,
-        });
+        const preflight = await getAutomationActionSendPreflight(
+          supabase,
+          profile.business_id,
+          action.id
+        );
 
         return [action.id, preflight] as const;
       })
@@ -638,6 +631,15 @@ export default async function AutomationsPage() {
                     </p>
                   )}
 
+                  <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                    <Badge variant="outline" className="border-border/70 bg-background">
+                      {action.reason_code?.replaceAll("_", " ") ?? action.action_type}
+                    </Badge>
+                    <Badge variant="outline" className="border-border/70 bg-background">
+                      Manual approval required
+                    </Badge>
+                  </div>
+
                   {action.suggested_message && (
                     <div className="mt-4 rounded-lg border border-border/70 bg-muted/30 p-3">
                       <p className="text-[0.68rem] font-medium uppercase tracking-[0.14em] text-muted-foreground">
@@ -668,11 +670,17 @@ export default async function AutomationsPage() {
                       <p className="mt-2 text-xs leading-5 text-muted-foreground">
                         {preflightByActionId.get(action.id)?.confirmationBody}
                       </p>
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                        Destination: {preflightByActionId.get(action.id)?.destinationSummary}
+                      </p>
                       {preflightByActionId.get(action.id)?.blockingIssues.length ? (
                         <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
                           {preflightByActionId.get(action.id)?.blockingIssues[0]}
                         </p>
                       ) : null}
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                        {preflightByActionId.get(action.id)?.nextOperatorAction}
+                      </p>
                     </div>
                   )}
 
@@ -689,7 +697,7 @@ export default async function AutomationsPage() {
                               preflightByActionId.get(action.id)?.mode === "live"
                                 ? "Approve & send live"
                                 : preflightByActionId.get(action.id)?.submitLabel ??
-                                  "Approve & send"
+                                  "Approve & send manually"
                             }
                             confirmationTitle={
                               preflightByActionId.get(action.id)?.confirmationTitle ??
