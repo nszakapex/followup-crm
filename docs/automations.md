@@ -649,6 +649,10 @@ The preflight check is server-side and read-only. It checks business scope, lead
 
 If the action is live-send ready, the operator must confirm the live send before the form submits. Scheduled automation routes still cannot send provider messages and still reject `allowProviderSends:true`.
 
+Phase 8 keeps automation provider sends blocked. Controlled provider
+validation is limited to one manual operator-approved send path. Automation
+runs and scheduled runs continue to create pending review actions only.
+
 ## Phase 6F Production Cron Scheduling
 
 Phase 6F adds a scheduler-oriented endpoint and business-level scheduling settings. The scheduler creates reviewable work only. It does not send SMS, email, or review requests.

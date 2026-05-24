@@ -52,6 +52,12 @@ Phase 7D keeps retry guidance operator-only. The app explains what to fix, but i
 
 Phase 7E adds final manual-send readiness guardrails. Setup and settings show safe send mode/readiness without exposing secrets. Manual live sends require an explicit operator action and confirmation. Preflight helpers do not send messages; the Phase 7C server send helper remains authoritative when a request is submitted.
 
+Phase 8 provider validation should start from this readiness view. Confirm
+test/skip mode first, then blocked provider configuration, then exactly one
+intentional live provider/channel with one test lead. Provider secrets remain
+server-only, and scheduled automation routes still cannot send provider
+messages.
+
 ### SMS Readiness
 
 SMS readiness is determined server-side from safe booleans only.

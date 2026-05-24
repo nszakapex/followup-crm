@@ -40,6 +40,32 @@ function isManualReviewChannel(value: FormDataEntryValue | null): value is Manua
   return value === "sms" || value === "email";
 }
 
+function formatManualReviewOutcome(
+  result: Awaited<ReturnType<typeof sendReviewRequest>>
+) {
+  if (result.success) {
+    if (result.deliverySkipped || result.status === "not_attempted") {
+      return "Test/skip delivery recorded. No live message was sent.";
+    }
+
+    return "Review request sent.";
+  }
+
+  if (result.status === "blocked") {
+    return `Review request blocked — ${result.blockedReason ?? result.error}. No message was sent.`;
+  }
+
+  if (result.status === "duplicate_prevented") {
+    return `Duplicate prevented — ${result.duplicateReason ?? result.error}. No message was sent.`;
+  }
+
+  if (result.status === "failed") {
+    return `Review request failed — ${result.failureReason ?? result.error}.`;
+  }
+
+  return result.error ?? "Failed to send review request.";
+}
+
 export async function getManualReviewRequestPreflight(formData: FormData) {
   const supabase = await createClient();
 
@@ -193,7 +219,7 @@ export async function sendManualReviewRequest(formData: FormData) {
 
     return {
       success: false as const,
-      error: result.error ?? "Failed to send review request.",
+      error: formatManualReviewOutcome(result),
     };
   }
 
@@ -205,6 +231,6 @@ export async function sendManualReviewRequest(formData: FormData) {
   return {
     success: true as const,
     reviewRequestId: result.reviewRequestId,
-    message: result.message ?? "Review request processed.",
+    message: formatManualReviewOutcome(result),
   };
 }

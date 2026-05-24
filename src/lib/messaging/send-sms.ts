@@ -109,6 +109,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
       success: false,
       provider: "twilio",
       providerMessageId: null,
+      providerStatus: "blocked",
       error: userMessage,
       userMessage,
     };
@@ -131,6 +132,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
       success: false,
       provider: "twilio",
       providerMessageId: null,
+      providerStatus: "blocked",
       error: userMessage,
       userMessage,
     };
@@ -153,6 +155,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
       success: false,
       provider: "blocked",
       providerMessageId: null,
+      providerStatus: "blocked",
       skipped: true,
       error: userMessage,
       userMessage,
@@ -175,6 +178,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
       success: true,
       provider: "test_mode",
       providerMessageId: null,
+      providerStatus: "skipped",
       skipped: true,
       userMessage,
     };
@@ -199,6 +203,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
       success: false,
       provider: "twilio",
       providerMessageId: null,
+      providerStatus: "blocked",
       error: withDevDetail(userMessage, readiness.reason),
       userMessage,
     };
@@ -229,6 +234,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
     });
     const result = (await response.json().catch(() => ({}))) as {
       sid?: string;
+      status?: string;
       message?: string;
     };
 
@@ -257,6 +263,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
         success: false,
         provider: "twilio",
         providerMessageId: null,
+        providerStatus: "failed",
         error: withDevDetail(userMessage, detail),
         userMessage,
       };
@@ -278,6 +285,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
       success: true,
       provider: "twilio",
       providerMessageId,
+      providerStatus: result.status ?? "queued",
       userMessage: "Review request sent.",
     };
   } catch (error) {
@@ -304,6 +312,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
       success: false,
       provider: "twilio",
       providerMessageId: null,
+      providerStatus: "failed",
       error: withDevDetail(userMessage, detail),
       userMessage,
     };

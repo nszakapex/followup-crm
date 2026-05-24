@@ -2,11 +2,10 @@ import "server-only";
 
 import { createClient } from "@supabase/supabase-js";
 
-import { sendEmail } from "@/lib/messaging/send-email";
 import { shouldSkipReviewDelivery } from "@/lib/messaging/provider-config";
 import { renderTemplate } from "@/lib/messaging/render-template";
-import { sendSms } from "@/lib/messaging/send-sms";
 import type { DeliveryResult } from "@/lib/messaging/types";
+import { sendReviewProviderMessage } from "@/lib/reviews/provider-send-adapter";
 import { getReviewProviderReadiness } from "@/lib/reviews/provider-readiness";
 
 type ReviewRequestOutcome =
@@ -48,6 +47,7 @@ export type SendReviewRequestResult =
       leadId: string;
       businessId: string;
       providerMessageId: string | null;
+      providerStatus: string | null;
       blockedReason: null;
       failureReason: null;
       duplicateReason: null;
@@ -65,6 +65,7 @@ export type SendReviewRequestResult =
       leadId: string | null;
       businessId: string;
       providerMessageId: string | null;
+      providerStatus: string | null;
       blockedReason: string | null;
       failureReason: string | null;
       duplicateReason: string | null;
@@ -205,7 +206,8 @@ async function logReviewEvent(
       | "review_request.sent"
       | "review_request.blocked"
       | "review_request.failed"
-      | "review_request.duplicate_prevented";
+      | "review_request.duplicate_prevented"
+      | "review_request.provider_attempted";
     entityId: string;
     metadata: Record<string, unknown>;
   }
@@ -380,6 +382,7 @@ async function createBlockedRequest(
       leadId: params.leadId,
       businessId: params.businessId,
       providerMessageId: null,
+      providerStatus: null,
       blockedReason: null,
       failureReason: getDatabaseError(
         "Failed to record blocked review request",
@@ -423,6 +426,7 @@ async function createBlockedRequest(
     leadId: params.leadId,
     businessId: params.businessId,
     providerMessageId: null,
+    providerStatus: null,
     blockedReason: params.reason,
     failureReason: null,
     duplicateReason: null,
@@ -452,6 +456,7 @@ async function updateReviewRequestDelivery(
         provider_response_json: {
           provider: params.delivery.provider,
           providerMessageId: params.delivery.providerMessageId,
+          providerStatus: params.delivery.providerStatus ?? null,
           deliverySkipped: params.deliverySkipped,
         },
         sent_at: params.deliverySkipped ? null : now,
@@ -474,6 +479,7 @@ async function updateReviewRequestDelivery(
       provider_response_json: {
         provider: params.delivery.provider,
         providerMessageId: params.delivery.providerMessageId,
+        providerStatus: params.delivery.providerStatus ?? null,
         userMessage: params.delivery.userMessage,
       },
       failure_reason: sanitizeReason(params.delivery.error),
@@ -531,6 +537,7 @@ export async function sendReviewRequest(
       leadId,
       businessId,
       providerMessageId: null,
+      providerStatus: null,
       blockedReason: null,
       failureReason: getBusinessLookupError(
         businessId,
@@ -577,6 +584,7 @@ export async function sendReviewRequest(
       leadId,
       businessId,
       providerMessageId: null,
+      providerStatus: null,
       blockedReason: null,
       failureReason: getBusinessQueryError(businessId, businessError.message),
       duplicateReason: null,
@@ -596,6 +604,7 @@ export async function sendReviewRequest(
       leadId,
       businessId,
       providerMessageId: null,
+      providerStatus: null,
       blockedReason: null,
       failureReason: getBusinessLookupError(businessId, "No matching business row returned."),
       duplicateReason: null,
@@ -621,6 +630,7 @@ export async function sendReviewRequest(
       leadId,
       businessId,
       providerMessageId: null,
+      providerStatus: null,
       blockedReason: null,
       failureReason: error,
       duplicateReason: null,
@@ -690,6 +700,7 @@ export async function sendReviewRequest(
       leadId,
       businessId,
       providerMessageId: null,
+      providerStatus: null,
       blockedReason: null,
       failureReason: getDatabaseError("Review request duplicate lookup failed", duplicateCheck.error.message),
       duplicateReason: null,
@@ -700,6 +711,44 @@ export async function sendReviewRequest(
 
   if (duplicateCheck.duplicate) {
     const reason = `A review request was already created for this customer and channel in the last ${RECENT_DUPLICATE_WINDOW_DAYS} days.`;
+    const duplicateAttempt = await createReviewRequestRecord(supabase, {
+      ...blockParams,
+      messageBody: renderReviewBody({
+        customerName,
+        business: businessRow,
+        reviewLink: businessRow.google_review_link,
+      }),
+      status: "duplicate_prevented",
+      sendStatus: "duplicate_prevented",
+      googleReviewUrl: businessRow.google_review_link,
+      duplicateReason: reason,
+    });
+
+    if (duplicateAttempt.error || !duplicateAttempt.reviewRequest) {
+      const error = getDatabaseError(
+        "Failed to record duplicate-prevented review request",
+        duplicateAttempt.error?.message ?? "No review request returned."
+      );
+
+      return {
+        success: false,
+        status: "failed",
+        channel,
+        provider: "internal",
+        reviewRequestId: null,
+        automationActionId,
+        leadId,
+        businessId,
+        providerMessageId: null,
+        providerStatus: null,
+        blockedReason: null,
+        failureReason: error,
+        duplicateReason: null,
+        sentAt: null,
+        error,
+      };
+    }
+
     await logReviewEvent(supabase, {
       businessId,
       userId: authenticatedUserId,
@@ -708,6 +757,7 @@ export async function sendReviewRequest(
       metadata: {
         businessId,
         leadId,
+        reviewRequestId: duplicateAttempt.reviewRequest.id,
         existingReviewRequestId: duplicateCheck.duplicate.id,
         automationActionId,
         channel,
@@ -724,11 +774,12 @@ export async function sendReviewRequest(
       status: "duplicate_prevented",
       channel,
       provider: "none",
-      reviewRequestId: duplicateCheck.duplicate.id,
+      reviewRequestId: duplicateAttempt.reviewRequest.id,
       automationActionId,
       leadId,
       businessId,
       providerMessageId: null,
+      providerStatus: null,
       blockedReason: null,
       failureReason: null,
       duplicateReason: reason,
@@ -787,6 +838,7 @@ export async function sendReviewRequest(
       leadId,
       businessId,
       providerMessageId: null,
+      providerStatus: null,
       blockedReason: null,
       failureReason: getDatabaseError(
         "Failed to create review request",
@@ -827,6 +879,7 @@ export async function sendReviewRequest(
         success: false,
         provider: "blocked",
         providerMessageId: null,
+        providerStatus: "blocked",
         error: failureReason,
         userMessage: failureReason,
       },
@@ -843,6 +896,7 @@ export async function sendReviewRequest(
       leadId,
       businessId,
       providerMessageId: null,
+      providerStatus: null,
       blockedReason: null,
       failureReason,
       duplicateReason: null,
@@ -878,6 +932,7 @@ export async function sendReviewRequest(
         leadId,
         businessId,
         providerMessageId: null,
+        providerStatus: null,
         blockedReason: null,
         failureReason: getDatabaseError(
           "Failed to update review request link",
@@ -893,24 +948,39 @@ export async function sendReviewRequest(
     }
   }
 
-  const deliveryResult =
-    channel === "sms"
-      ? await sendSms({
-          businessId,
-          leadId,
-          to: phone,
-          body: messageBody,
-          optedOut,
-          twilioFromNumber: businessRow.twilio_from_number,
-        })
-      : await sendEmail({
-          businessId,
-          leadId,
-          to: email,
-          subject: `${businessRow.name} - Would you leave us a review?`,
-          body: messageBody,
-          fromEmail: businessRow.resend_from_email,
-        });
+  const providerAttemptExpected = !shouldSkipReviewDelivery();
+  if (providerAttemptExpected) {
+    await logReviewEvent(supabase, {
+      businessId,
+      userId: authenticatedUserId,
+      action: "review_request.provider_attempted",
+      entityId: leadId,
+      metadata: {
+        businessId,
+        leadId,
+        reviewRequestId: reviewRequest.id,
+        automationActionId,
+        channel,
+        provider: getProviderForChannel(channel),
+        status: "provider_attempted",
+        source,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  }
+
+  const deliveryResult = await sendReviewProviderMessage({
+    businessId,
+    leadId,
+    channel,
+    phone,
+    email,
+    messageBody,
+    businessName: businessRow.name,
+    optedOut,
+    twilioFromNumber: businessRow.twilio_from_number,
+    resendFromEmail: businessRow.resend_from_email,
+  });
   const deliverySkipped = Boolean(deliveryResult.skipped);
   const updateResult = await updateReviewRequestDelivery(supabase, {
     reviewRequestId: reviewRequest.id,
@@ -929,6 +999,7 @@ export async function sendReviewRequest(
       leadId,
       businessId,
       providerMessageId: null,
+      providerStatus: null,
       blockedReason: null,
       failureReason: getDatabaseError(
         "Failed to update review request status",
@@ -958,6 +1029,7 @@ export async function sendReviewRequest(
         channel,
         provider: deliveryResult.provider,
         providerMessageId: deliveryResult.providerMessageId,
+        providerStatus: deliveryResult.providerStatus ?? null,
         status: "failed",
         failureReason: sanitizeReason(failureReason),
         source,
@@ -975,6 +1047,7 @@ export async function sendReviewRequest(
       leadId,
       businessId,
       providerMessageId: deliveryResult.providerMessageId,
+      providerStatus: deliveryResult.providerStatus ?? null,
       blockedReason: null,
       failureReason,
       duplicateReason: null,
@@ -997,6 +1070,7 @@ export async function sendReviewRequest(
       channel,
       provider: deliveryResult.provider,
       providerMessageId: deliveryResult.providerMessageId,
+      providerStatus: deliveryResult.providerStatus ?? null,
       status: deliverySkipped ? "not_attempted" : "sent",
       blockedReason: deliverySkipped ? "Delivery skipped in test mode." : null,
       deliverySkipped,
@@ -1015,6 +1089,7 @@ export async function sendReviewRequest(
     leadId,
     businessId,
     providerMessageId: deliveryResult.providerMessageId,
+    providerStatus: deliveryResult.providerStatus ?? null,
     blockedReason: null,
     failureReason: null,
     duplicateReason: null,

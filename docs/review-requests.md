@@ -54,6 +54,7 @@ Manual automation approval remains one action at a time. There is no send-all or
 Review request audit events:
 
 - `review_request.created`
+- `review_request.provider_attempted`
 - `review_request.sent`
 - `review_request.blocked`
 - `review_request.failed`
@@ -225,3 +226,82 @@ Phase 7E does not add:
 - provider secret exposure
 
 The protected automation runner and scheduler still reject provider sends.
+
+## Phase 8 Controlled Manual Provider Validation
+
+Phase 8 validates one controlled manual provider send path. It does not add
+automation delivery, cron delivery, scheduled provider sends, bulk sends,
+send-all, batch review sends, or retry sending.
+
+The validated path is:
+
+1. Operator opens the direct manual review request flow.
+2. Server-side preflight checks business scope, lead scope, destination, review
+   link, provider readiness, send mode, and duplicate risk.
+3. Live mode requires explicit confirmation before submit.
+4. The server action re-checks auth/business scope and calls
+   `sendReviewRequest`.
+5. `sendReviewRequest` records the request lifecycle, checks duplicates, and
+   delegates provider delivery through the server-only review provider adapter.
+6. The adapter delegates to the existing SMS or email helper.
+7. The final lifecycle is written to `review_requests` and shown in `/reviews`
+   and `/leads/[id]`.
+
+Provider metadata is normalized into safe fields such as provider name,
+provider message id, and provider status. Raw credentials, auth headers, API
+keys, and unsafe provider payloads are never returned to the browser.
+
+### Provider Outcomes
+
+- Live success records `status = sent`, `send_status = sent`, `sent_at`, and
+  safe provider metadata when available.
+- Provider readiness/configuration blocks record `blocked` and do not call the
+  provider.
+- Provider/helper failures record `failed` after the send path starts.
+- Duplicate attempts record `duplicate_prevented` and do not call the provider.
+- Test/skip mode records `not_attempted` and does not call the provider.
+
+### Safe Validation Checklist
+
+1. Apply `supabase/migrations/007_phase_7c_review_request_lifecycle.sql`.
+2. Confirm test/skip mode first.
+3. Confirm missing provider configuration blocks safely.
+4. Confirm missing review link blocks safely.
+5. Confirm missing phone/email blocks safely.
+6. Configure exactly one provider/channel intentionally.
+7. Use one test lead/contact.
+8. Confirm the UI says live mode is ready.
+9. Confirm the live send checkbox/confirmation is shown.
+10. Submit one manual request.
+11. Verify `/reviews` and `/leads/[id]` show the final lifecycle.
+12. Attempt the same request again and confirm duplicate prevention.
+
+### Supabase Verification Query
+
+```sql
+select
+  id,
+  business_id,
+  lead_id,
+  status,
+  send_status,
+  source,
+  channel,
+  provider,
+  provider_message_id,
+  provider_response_json,
+  sent_at,
+  blocked_at,
+  failed_at,
+  duplicate_prevented_at,
+  blocked_reason,
+  failure_reason,
+  duplicate_reason,
+  automation_action_id,
+  created_at
+from review_requests
+order by created_at desc
+limit 20;
+```
+
+This query is read-only and does not expose provider secrets.

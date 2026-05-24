@@ -5,6 +5,7 @@ export type DeliveryResult =
       success: true;
       provider: DeliveryProvider;
       providerMessageId: string | null;
+      providerStatus?: string | null;
       skipped?: boolean;
       userMessage: string;
     }
@@ -12,6 +13,7 @@ export type DeliveryResult =
       success: false;
       provider: DeliveryProvider;
       providerMessageId: string | null;
+      providerStatus?: string | null;
       skipped?: boolean;
       error: string;
       userMessage: string;

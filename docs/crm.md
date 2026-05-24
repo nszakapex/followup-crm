@@ -42,6 +42,13 @@ Phase 7D uses the shared review request lifecycle display helper so the contact 
 
 Phase 7E adds manual send preflight visibility to lead detail pending automation actions. When a pending review-request action is shown, the page displays whether the approval would be live, test, skip, or blocked before the operator clicks. Live approval uses an explicit confirmation prompt and remains one action at a time.
 
+Phase 8 validates the same manual-only model for direct review requests. A
+single controlled provider attempt starts from an operator click, goes through
+server-side preflight and confirmation, and then appears in the lead timeline
+as sent, blocked, failed, duplicate-prevented, or test/skipped. No customer or
+lead detail page contains send-all, bulk-send, cron-send, or retry-send
+controls.
+
 ## Pending automation action controls
 
 The detail page reuses the existing automation action server actions:

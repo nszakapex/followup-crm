@@ -110,6 +110,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
       success: false,
       provider: "resend",
       providerMessageId: null,
+      providerStatus: "blocked",
       error: userMessage,
       userMessage,
     };
@@ -132,6 +133,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
       success: false,
       provider: "resend",
       providerMessageId: null,
+      providerStatus: "blocked",
       error: userMessage,
       userMessage,
     };
@@ -152,6 +154,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
         success: false,
         provider: "test_mode",
         providerMessageId: null,
+        providerStatus: "skipped",
         skipped: true,
         error: isDevelopment()
           ? `Failed to log email message: ${messageError.message}`
@@ -164,6 +167,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
       success: true,
       provider: "test_mode",
       providerMessageId: null,
+      providerStatus: "skipped",
       skipped: true,
       userMessage,
     };
@@ -188,6 +192,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
       success: false,
       provider: "resend",
       providerMessageId: null,
+      providerStatus: "blocked",
       error: withDevDetail(userMessage, readiness.reason),
       userMessage,
     };
@@ -237,6 +242,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
         success: false,
         provider: "resend",
         providerMessageId: null,
+        providerStatus: "failed",
         error: withDevDetail(userMessage, detail),
         userMessage,
       };
@@ -258,6 +264,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
       success: true,
       provider: "resend",
       providerMessageId,
+      providerStatus: "accepted",
       userMessage: "Review request sent.",
     };
   } catch (error) {
@@ -284,6 +291,7 @@ export async function sendEmail(params: SendEmailParams): Promise<DeliveryResult
       success: false,
       provider: "resend",
       providerMessageId: null,
+      providerStatus: "failed",
       error: withDevDetail(userMessage, detail),
       userMessage,
     };

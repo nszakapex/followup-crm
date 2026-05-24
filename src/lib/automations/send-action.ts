@@ -81,6 +81,7 @@ function normalizeProviderResult(result: DeliveryResult) {
   return {
     provider: result.provider,
     providerMessageId: result.providerMessageId ?? null,
+    providerStatus: result.providerStatus ?? null,
     deliverySkipped: Boolean(result.skipped),
     userMessage: result.userMessage,
     error: result.success ? null : result.error,
@@ -517,6 +518,7 @@ export async function sendAutomationAction(
       ? {
           provider: delivery.provider,
           providerMessageId: delivery.providerMessageId,
+          providerStatus: delivery.providerStatus ?? null,
           deliverySkipped: Boolean(delivery.deliverySkipped),
           userMessage: delivery.success
             ? delivery.message
@@ -556,6 +558,7 @@ export async function sendAutomationAction(
       provider_response_json: {
         provider: normalized.provider,
         providerMessageId: normalized.providerMessageId,
+        providerStatus: normalized.providerStatus,
         deliverySkipped: normalized.deliverySkipped,
         reviewRequestId: normalized.reviewRequestId,
         userMessage: normalized.userMessage,
@@ -581,6 +584,7 @@ export async function sendAutomationAction(
         reviewRequestId: normalized.reviewRequestId,
         provider: normalized.provider,
         providerMessageId: normalized.providerMessageId,
+        providerStatus: normalized.providerStatus,
         outcomeStatus: normalized.outcomeStatus,
         error: sanitizeError(errorMessage),
         timestamp: sentAt,
@@ -607,6 +611,7 @@ export async function sendAutomationAction(
     provider_response_json: {
       provider: normalized.provider,
       providerMessageId: normalized.providerMessageId,
+      providerStatus: normalized.providerStatus,
       deliverySkipped: normalized.deliverySkipped,
       reviewRequestId: normalized.reviewRequestId,
       userMessage: normalized.userMessage,
@@ -631,6 +636,7 @@ export async function sendAutomationAction(
       reviewRequestId: normalized.reviewRequestId,
       provider: normalized.provider,
       providerMessageId: normalized.providerMessageId,
+      providerStatus: normalized.providerStatus,
       deliverySkipped: normalized.deliverySkipped,
       timestamp: sentAt,
     },
