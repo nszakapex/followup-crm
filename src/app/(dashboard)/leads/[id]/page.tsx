@@ -25,7 +25,7 @@ import { AddNoteForm } from "@/components/leads/add-note-form";
 import { LeadStatusActions } from "@/components/leads/lead-status-actions";
 import { ManualSendSubmitButton } from "@/components/reviews/manual-send-submit-button";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
@@ -190,10 +190,10 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
   if (!result.detail || !result.lead) {
     return (
       <div className="space-y-6">
-        <Button variant="ghost" render={<Link href="/leads" />}>
+        <Link href="/leads" className={buttonVariants({ variant: "ghost" })}>
           <ArrowLeft className="h-4 w-4" />
           Back to leads
-        </Button>
+        </Link>
         <Card className="border-destructive/30 bg-destructive/5">
           <CardContent className="flex gap-3 py-4 text-sm text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -228,10 +228,10 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
 
   return (
     <div className="space-y-8">
-      <Button variant="ghost" render={<Link href="/leads" />}>
+      <Link href="/leads" className={buttonVariants({ variant: "ghost" })}>
         <ArrowLeft className="h-4 w-4" />
         Back to leads
-      </Button>
+      </Link>
 
       <PageHeader
         eyebrow="Contact record"
@@ -294,10 +294,13 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                 <CardDescription>{detail.nextBestAction.reason}</CardDescription>
               </div>
               {detail.nextBestAction.href ? (
-                <Button size="sm" render={<Link href={detail.nextBestAction.href} />}>
+                <Link
+                  href={detail.nextBestAction.href}
+                  className={buttonVariants({ size: "sm" })}
+                >
                   {detail.nextBestAction.label}
                   <ArrowRight className="h-4 w-4" />
-                </Button>
+                </Link>
               ) : (
                 <Badge variant="outline" className="border-border/70 bg-muted/40 text-muted-foreground">
                   {detail.nextBestAction.label}
