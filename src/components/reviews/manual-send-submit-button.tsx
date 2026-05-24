@@ -1,6 +1,7 @@
 "use client";
 
 import type { MouseEvent } from "react";
+import { useFormStatus } from "react-dom";
 import { Send } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,14 @@ export function ManualSendSubmitButton({
   confirmationBody: string;
   disabled?: boolean;
 }) {
+  const { pending } = useFormStatus();
+
   function handleClick(event: MouseEvent<HTMLButtonElement>) {
+    if (pending) {
+      event.preventDefault();
+      return;
+    }
+
     if (mode !== "live") return;
 
     const confirmed = window.confirm(`${confirmationTitle}\n\n${confirmationBody}`);
@@ -30,9 +38,9 @@ export function ManualSendSubmitButton({
   }
 
   return (
-    <Button type="submit" size="sm" disabled={disabled} onClick={handleClick}>
+    <Button type="submit" size="sm" disabled={disabled || pending} onClick={handleClick}>
       <Send className="h-3.5 w-3.5" />
-      {label}
+      {pending ? "Processing..." : label}
     </Button>
   );
 }

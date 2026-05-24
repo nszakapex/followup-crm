@@ -142,11 +142,13 @@ async function findDuplicateRisk(
 
   const { data, error } = await supabase
     .from("review_requests")
-    .select("id, status, created_at")
+    .select("id, status, send_status, created_at")
     .eq("business_id", params.businessId)
     .eq("dedupe_key", params.dedupeKey)
     .gte("created_at", since.toISOString())
-    .in("status", ["pending", "sent", "clicked", "completed"])
+    .or(
+      "status.in.(pending,sent,clicked,completed,duplicate_prevented),send_status.in.(not_attempted,skipped,sent,duplicate_prevented)"
+    )
     .order("created_at", { ascending: false })
     .limit(1);
 

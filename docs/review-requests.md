@@ -43,6 +43,11 @@ Duplicate-prevented attempts are audited with `review_request.duplicate_prevente
 
 Preflight duplicate checks use the same dedupe-key identity, but final send remains authoritative. If preflight misses a recent duplicate, `sendReviewRequest` still records `duplicate_prevented` before any provider call.
 
+Test/skip outcomes also count for duplicate prevention inside the duplicate
+window. A request recorded with `send_status = not_attempted` or `skipped`
+prevents repeated clicks from creating unlimited additional skipped rows for
+the same business, lead/contact, channel, and destination identity.
+
 ## Send Paths
 
 Direct review requests and manual automation action approval both use the hardened review request lifecycle.
@@ -262,6 +267,8 @@ keys, and unsafe provider payloads are never returned to the browser.
 - Provider/helper failures record `failed` after the send path starts.
 - Duplicate attempts record `duplicate_prevented` and do not call the provider.
 - Test/skip mode records `not_attempted` and does not call the provider.
+- Repeating the same test/skip request inside the duplicate window records or
+  resolves as already processed instead of creating another skipped request.
 
 Failure reasons shown to operators and stored on review request lifecycle fields are safe summaries only, such as `SMS delivery failed.` or `Email delivery failed.`. Raw provider diagnostics remain server-side only.
 

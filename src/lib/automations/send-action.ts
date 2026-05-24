@@ -50,6 +50,13 @@ type ProviderReadinessSummary = {
   skipped: boolean;
   reason: string | null;
 };
+type ExistingActionReviewRequest = {
+  id: string;
+  status: string | null;
+  send_status: string | null;
+  provider: string | null;
+  provider_message_id: string | null;
+};
 
 export type SendAutomationActionResult =
   | {
@@ -259,6 +266,136 @@ async function claimAction(
   return { success: true as const };
 }
 
+async function findExistingReviewRequestForAction(
+  supabase: SupabaseServerClient,
+  businessId: string,
+  actionId: string
+) {
+  const { data, error } = await supabase
+    .from("review_requests")
+    .select("id, status, send_status, provider, provider_message_id")
+    .eq("business_id", businessId)
+    .eq("automation_action_id", actionId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return {
+    reviewRequest: (data as ExistingActionReviewRequest | null) ?? null,
+    error,
+  };
+}
+
+function getActionFinalStateFromReviewRequest(
+  reviewRequest: ExistingActionReviewRequest
+): {
+  status: AutomationActionStatus;
+  sendStatus: AutomationActionSendStatus;
+  message: string;
+  deliverySkipped: boolean;
+} {
+  if (
+    reviewRequest.send_status === "sent" ||
+    reviewRequest.status === "sent" ||
+    reviewRequest.status === "clicked" ||
+    reviewRequest.status === "completed"
+  ) {
+    return {
+      status: "sent",
+      sendStatus: "sent",
+      message: "This action has already been processed.",
+      deliverySkipped: false,
+    };
+  }
+
+  if (
+    reviewRequest.send_status === "not_attempted" ||
+    reviewRequest.send_status === "skipped"
+  ) {
+    return {
+      status: "sent",
+      sendStatus: "skipped",
+      message: "This action has already been processed. No message was sent.",
+      deliverySkipped: true,
+    };
+  }
+
+  if (
+    reviewRequest.send_status === "blocked" ||
+    reviewRequest.send_status === "duplicate_prevented" ||
+    reviewRequest.status === "blocked" ||
+    reviewRequest.status === "duplicate_prevented"
+  ) {
+    return {
+      status: "blocked",
+      sendStatus: "blocked",
+      message: "This action has already been processed. No message was sent.",
+      deliverySkipped: true,
+    };
+  }
+
+  if (reviewRequest.send_status === "failed" || reviewRequest.status === "failed") {
+    return {
+      status: "send_failed",
+      sendStatus: "failed",
+      message: "This action has already been processed.",
+      deliverySkipped: false,
+    };
+  }
+
+  return {
+    status: "sent",
+    sendStatus: "skipped",
+    message: "This action has already been processed. No message was sent.",
+    deliverySkipped: true,
+  };
+}
+
+async function returnExistingReviewRequestOutcome({
+  supabase,
+  action,
+  reviewRequest,
+}: {
+  supabase: SupabaseServerClient;
+  action: SendableAction;
+  reviewRequest: ExistingActionReviewRequest;
+}): Promise<SendAutomationActionResult> {
+  const finalState = getActionFinalStateFromReviewRequest(reviewRequest);
+  const updateError = await markActionFinal(supabase, action.business_id, action.id, {
+    status: finalState.status,
+    send_status: finalState.sendStatus,
+    provider: reviewRequest.provider,
+    provider_message_id: reviewRequest.provider_message_id,
+    review_request_id: reviewRequest.id,
+    provider_response_json: {
+      reviewRequestId: reviewRequest.id,
+      outcomeStatus: reviewRequest.status,
+      sendStatus: reviewRequest.send_status,
+      recoveredFromExistingReviewRequest: true,
+    },
+    send_error: null,
+    sent_at: finalState.sendStatus === "sent" ? new Date().toISOString() : null,
+  });
+
+  if (updateError) {
+    return {
+      success: false,
+      error: getDatabaseError(
+        "Failed to update processed automation action",
+        updateError.message
+      ),
+    };
+  }
+
+  return {
+    success: true,
+    status: finalState.status,
+    sendStatus: finalState.sendStatus,
+    message: finalState.message,
+    deliverySkipped: finalState.deliverySkipped,
+  };
+}
+
 async function sendFollowUpMessage({
   action,
   business,
@@ -316,11 +453,17 @@ export async function sendAutomationAction(
   const action = actionData as SendableAction;
 
   if (action.status !== "pending_review") {
-    return { success: false, error: "Only pending automation actions can be sent." };
+    return {
+      success: false,
+      error: "This action has already been processed. No message was sent.",
+    };
   }
 
-  if (action.sent_at || action.send_status === "sent") {
-    return { success: false, error: "Automation action has already been sent." };
+  if (action.review_request_id || action.sent_at || action.send_status) {
+    return {
+      success: false,
+      error: "This action has already been processed. No message was sent.",
+    };
   }
 
   if (action.channel !== "sms" && action.channel !== "email") {
@@ -348,6 +491,32 @@ export async function sendAutomationAction(
       userId,
       reason: "Automation action type is not sendable.",
     });
+  }
+
+  if (action.action_type === "review_request") {
+    const existingRequest = await findExistingReviewRequestForAction(
+      supabase,
+      businessId,
+      action.id
+    );
+
+    if (existingRequest.error) {
+      return {
+        success: false,
+        error: getDatabaseError(
+          "Existing review request lookup failed",
+          existingRequest.error.message
+        ),
+      };
+    }
+
+    if (existingRequest.reviewRequest) {
+      return returnExistingReviewRequestOutcome({
+        supabase,
+        action,
+        reviewRequest: existingRequest.reviewRequest,
+      });
+    }
   }
 
   const { data: duplicateSent, error: duplicateError } = await supabase

@@ -531,6 +531,11 @@ Delivery helpers still obey:
 
 If local/test delivery is active, the action is marked processed with `send_status = 'skipped'`; no Twilio or Resend call is made.
 
+Once a pending action creates or links to a test/skipped review request, the
+action is no longer actively sendable. Re-submitting the same action returns a
+safe already-processed result and does not create another `not_attempted`
+review request row.
+
 ### Statuses
 
 Automation action statuses now include:
@@ -584,6 +589,8 @@ Manual send:
 - expected: exactly one action is processed
 - expected: action status becomes `sent`, `send_failed`, or `blocked`
 - expected: local/test mode uses `send_status = 'skipped'` and no provider call occurs
+- expected: clicking the same processed action again does not create another
+  skipped review request row
 
 Sent action cannot be sent again:
 
