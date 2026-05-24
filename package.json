@@ -9,6 +9,7 @@
     "lint": "eslint",
     "seed:demo": "node scripts/seed-demo.mjs",
     "reset:demo": "node scripts/reset-demo.mjs",
+    "verify:beta": "node scripts/verify-beta.mjs",
     "automations:run": "node scripts/run-automations.mjs"
   },
   "dependencies": {

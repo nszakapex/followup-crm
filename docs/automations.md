@@ -708,6 +708,34 @@ Detailing beta smoke test:
 6. Confirm pending actions use detailing-specific suggestions, while the CRM UI
    remains generic and no send-all/bulk/automatic provider delivery appears.
 
+## Phase 11 Reliability and Observability
+
+Phase 11 adds read-only pre-beta diagnostics. Automation behavior is unchanged:
+confirmed runs can create pending actions, dry-runs create no actions, and
+provider sends remain blocked from automation routes.
+
+New reliability visibility includes:
+
+- beta readiness checks on `/setup`
+- data integrity diagnostics for stale or duplicate action/request states
+- recent safety events built from review request and automation action outcomes
+- a dashboard safety mode banner that identifies test, skip, live, or blocked mode
+- `npm run verify:beta` for read-only detailing beta fixture checks
+
+The diagnostics never send providers, queue work, repair data, or expose
+secrets. They are meant to catch hidden issues before beta use.
+
+Recommended automation QA before beta:
+
+1. Run `npm run verify:beta -- --business-id=BUSINESS_ID`.
+2. Open `/setup` and review beta readiness plus data integrity findings.
+3. Run a protected automation dry-run.
+4. Run one confirmed automation check in test mode if queue actions are needed.
+5. Confirm pending actions are individual and manual-only.
+6. Click one test/skipped action and confirm a second click creates no duplicate row.
+7. Confirm `/api/automations/run` rejects `allowProviderSends:true`.
+8. Confirm `/api/automations/scheduled-run` rejects `allowProviderSends:true`.
+
 ## Phase 7C Review Request Delivery Reliability
 
 Manual automation approval for `review_request` actions now uses the hardened review request lifecycle documented in `docs/review-requests.md`.

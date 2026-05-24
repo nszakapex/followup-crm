@@ -201,3 +201,27 @@ Regression:
 - follow-up queue actions remain manual, duplicate-protected, and repeat-click safe
 - unknown or missing business type falls back to generic service-business templates
 - detailing beta copy appears only through vertical config, demo data, or seeded suggestions
+
+## Phase 11 Beta Readiness
+
+Phase 11 adds read-only reliability checks before beta use. The Setup page shows
+beta readiness, data integrity diagnostics, recent safety events, and the
+current provider safety mode. These checks do not send messages, queue actions,
+repair data, or expose provider secrets.
+
+Run the read-only verifier for a beta workspace:
+
+```powershell
+npm run verify:beta -- --business-id=BUSINESS_ID
+```
+
+Use `/setup` before a beta session to confirm:
+
+- business and vertical resolve correctly
+- review link status is clear
+- provider mode is test, skip, live, or blocked
+- pending/blocked/failed action counts are visible
+- stale or duplicate queue states are visible
+- recent review/action outcomes are understandable
+
+See [beta-readiness.md](./beta-readiness.md) for the full checklist.

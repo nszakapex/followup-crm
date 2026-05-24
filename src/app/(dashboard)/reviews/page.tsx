@@ -12,7 +12,7 @@ import {
 import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
 import { SendReviewRequestDialog } from "@/components/reviews/send-review-request-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
@@ -217,10 +217,10 @@ export default async function ReviewsPage() {
             ) : hasGoogleReviewLink ? (
               <AddLeadDialog />
             ) : (
-              <Button variant="outline" render={<Link href="/settings" />}>
+              <Link href="/settings" className={buttonVariants({ variant: "outline" })}>
                 <ExternalLink className="h-4 w-4 mr-2" />
                 Settings
-              </Button>
+              </Link>
             )}
           </>
         }
@@ -272,10 +272,10 @@ export default async function ReviewsPage() {
               Customers reach this link after clicking a tracked review request.
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" render={<Link href="/settings" />}>
+          <Link href="/settings" className={buttonVariants({ variant: "outline", size: "sm" })}>
             <ExternalLink className="h-4 w-4 mr-2" />
             Settings
-          </Button>
+          </Link>
         </CardHeader>
         <CardContent>
           {hasGoogleReviewLink ? (
@@ -386,9 +386,9 @@ export default async function ReviewsPage() {
                 ) : hasGoogleReviewLink ? (
                   <AddLeadDialog />
                 ) : (
-                  <Button variant="outline" render={<Link href="/settings" />}>
+                  <Link href="/settings" className={buttonVariants({ variant: "outline" })}>
                     Configure review link
-                  </Button>
+                  </Link>
                 )
               }
             />

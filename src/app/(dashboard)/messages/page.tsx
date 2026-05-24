@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ArrowRight, Mail, MessageSquare, Send } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
@@ -165,9 +165,9 @@ export default async function MessagesPage() {
               title="No messages yet"
               description="Messages will appear here as follow-ups, review requests, and notes are created. Start from a lead or send a review request when the business is ready."
               action={
-                <Button variant="outline" render={<Link href="/reviews" />}>
+                <Link href="/reviews" className={buttonVariants({ variant: "outline" })}>
                   Open reviews
-                </Button>
+                </Link>
               }
             />
           ) : (
@@ -210,9 +210,16 @@ export default async function MessagesPage() {
                         <p className="text-xs text-muted-foreground">
                           {formatDate(message.sent_at ?? message.received_at ?? message.created_at)}
                         </p>
-                        <Button variant="ghost" size="icon-sm" className="opacity-70 group-hover:opacity-100">
+                        <span
+                          className={buttonVariants({
+                            variant: "ghost",
+                            size: "icon-sm",
+                            className: "opacity-70 group-hover:opacity-100",
+                          })}
+                          aria-hidden="true"
+                        >
                           <ArrowRight className="h-4 w-4" />
-                        </Button>
+                        </span>
                       </div>
                       {message.error_message && (
                         <p className="text-xs leading-5 text-muted-foreground md:col-span-3">

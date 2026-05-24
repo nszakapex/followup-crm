@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Zap, MessageSquare, Star, ArrowRight, CheckCircle } from "lucide-react";
 
 const features = [
@@ -45,12 +45,12 @@ export default function LandingPage() {
             <span className="text-lg font-semibold tracking-tight">FollowUp</span>
           </Link>
           <div className="flex items-center gap-3">
-            <Button variant="ghost" render={<Link href="/login" />}>
+            <Link href="/login" className={buttonVariants({ variant: "ghost" })}>
               Sign in
-            </Button>
-            <Button render={<Link href="/signup" />}>
+            </Link>
+            <Link href="/signup" className={buttonVariants()}>
               Get started
-            </Button>
+            </Link>
           </div>
         </div>
       </header>
@@ -65,13 +65,13 @@ export default function LandingPage() {
           software to learn. Just leads, follow-ups, and reviews in one place.
         </p>
         <div className="mt-8 flex items-center justify-center gap-4">
-          <Button size="lg" render={<Link href="/signup" />}>
+          <Link href="/signup" className={buttonVariants({ size: "lg" })}>
             Start free trial
             <ArrowRight className="h-4 w-4 ml-2" />
-          </Button>
-          <Button size="lg" variant="outline" render={<Link href="/login" />}>
+          </Link>
+          <Link href="/login" className={buttonVariants({ size: "lg", variant: "outline" })}>
             Sign in
-          </Button>
+          </Link>
         </div>
         <p className="mt-4 text-sm text-muted-foreground">
           No credit card required. Set up in under 5 minutes.
@@ -121,10 +121,10 @@ export default function LandingPage() {
           Most leads go cold quickly. FollowUp shows who needs attention and what
           action to take next, so you can focus on doing great work.
         </p>
-        <Button size="lg" className="mt-6" render={<Link href="/signup" />}>
+        <Link href="/signup" className={buttonVariants({ size: "lg", className: "mt-6" })}>
           Get started free
           <ArrowRight className="h-4 w-4 ml-2" />
-        </Button>
+        </Link>
       </section>
 
       {/* Footer */}

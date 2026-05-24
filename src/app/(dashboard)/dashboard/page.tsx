@@ -15,7 +15,7 @@ import {
 import { AddLeadDialog } from "@/components/leads/add-lead-dialog";
 import { ActivityItem } from "@/components/ui/activity-item";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { DashboardChart, type DashboardChartPoint } from "@/components/dashboard/dashboard-chart";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -24,6 +24,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { ReadinessPanel, type ReadinessItem } from "@/components/ui/readiness-panel";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DEMO_EXTERNAL_CRM_NAME } from "@/lib/demo/constants";
+import { getBetaReadiness } from "@/lib/diagnostics/beta-readiness";
 import {
   getEmailProviderReadiness,
   getSmsProviderReadiness,
@@ -186,6 +187,7 @@ export default async function DashboardPage() {
     { data: automationsData, error: automationsError },
     { data: messagesData, error: messagesError },
     readiness,
+    betaReadiness,
   ] = await Promise.all([
     supabase
       .from("businesses")
@@ -218,6 +220,7 @@ export default async function DashboardPage() {
       .order("created_at", { ascending: false })
       .limit(20),
     getBusinessReadiness(supabase, businessId),
+    getBetaReadiness(supabase, businessId),
   ]);
 
   const queryErrors = [
@@ -492,10 +495,10 @@ export default async function DashboardPage() {
                 Demo data
               </Badge>
             )}
-            <Button variant="outline" render={<Link href="/setup" />}>
+            <Link href="/setup" className={buttonVariants({ variant: "outline" })}>
               Setup
               <ArrowRight className="h-4 w-4" />
-            </Button>
+            </Link>
             <AddLeadDialog />
           </>
         }
@@ -520,10 +523,40 @@ export default async function DashboardPage() {
               server-side and never shown.
             </p>
           </div>
-          <Button variant="outline" render={<Link href="/setup" />}>
+          <Link href="/setup" className={buttonVariants({ variant: "outline" })}>
             Open setup
             <ArrowRight className="h-4 w-4" />
-          </Button>
+          </Link>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/70 bg-muted/20">
+        <CardContent className="grid gap-4 p-5 md:grid-cols-[1fr_auto] md:items-center">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-medium text-foreground">Beta readiness</p>
+              <Badge variant="outline" className="border-border/70 bg-background text-muted-foreground">
+                {betaReadiness.mode}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={
+                  betaReadiness.readyForManualBeta
+                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    : "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                }
+              >
+                {betaReadiness.readyForManualBeta ? "Manual beta ready" : "Needs attention"}
+              </Badge>
+            </div>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {betaReadiness.summary}
+            </p>
+          </div>
+          <Link href="/setup" className={buttonVariants({ variant: "outline" })}>
+            Open diagnostics
+            <ArrowRight className="h-4 w-4" />
+          </Link>
         </CardContent>
       </Card>
 
@@ -722,9 +755,12 @@ export default async function DashboardPage() {
                     description={activity.description}
                     meta={formatRelative(activity.date)}
                     action={
-                      <Button variant="ghost" size="icon-sm" render={<Link href={activity.href} />}>
+                      <Link
+                        href={activity.href}
+                        className={buttonVariants({ variant: "ghost", size: "icon-sm" })}
+                      >
                         <ArrowRight className="h-4 w-4" />
-                      </Button>
+                      </Link>
                     }
                   />
                 ))}

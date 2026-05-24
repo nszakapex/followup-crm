@@ -5,9 +5,12 @@ import {
   ArrowRight,
   Building2,
   CheckCircle2,
+  ClipboardCheck,
+  Database,
   Mail,
   MessageSquare,
   Phone,
+  ShieldCheck,
   Star,
   Users,
   Webhook,
@@ -18,10 +21,13 @@ import { BrandVoiceSelector } from "@/components/settings/brand-voice-selector";
 import { BusinessSettingsForm } from "@/components/settings/business-settings-form";
 import { ReviewLinkForm } from "@/components/settings/review-link-form";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { getBusinessVerticalLabel } from "@/lib/business-verticals/verticals";
+import { getBetaReadiness, type BetaReadinessCheckStatus } from "@/lib/diagnostics/beta-readiness";
+import { getBusinessDataIntegrity, type DataIntegrityStatus } from "@/lib/diagnostics/data-integrity";
+import { getRecentSafetyEvents, type SafetyEventStatus } from "@/lib/diagnostics/events";
 import { getBusinessReadiness } from "@/lib/onboarding/readiness";
 import { getReviewProviderReadiness } from "@/lib/reviews/provider-readiness";
 import { createClient } from "@/lib/supabase/server";
@@ -53,6 +59,35 @@ function statusLabel(status: string) {
   if (status === "blocked") return "Blocked";
   if (status === "empty") return "Empty";
   return status;
+}
+
+function checkTone(status: BetaReadinessCheckStatus) {
+  if (status === "pass") return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (status === "fail") return "border-destructive/25 bg-destructive/10 text-destructive";
+  if (status === "warning") return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  return "border-border/70 bg-muted/40 text-muted-foreground";
+}
+
+function integrityTone(status: DataIntegrityStatus) {
+  if (status === "healthy") return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (status === "critical") return "border-destructive/25 bg-destructive/10 text-destructive";
+  return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+}
+
+function eventTone(status: SafetyEventStatus) {
+  if (status === "success") return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (status === "danger") return "border-destructive/25 bg-destructive/10 text-destructive";
+  if (status === "warning") return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  return "border-border/70 bg-muted/40 text-muted-foreground";
+}
+
+function formatShortDate(dateStr: string) {
+  return new Date(dateStr).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function MissingList({ items }: { items: string[] }) {
@@ -114,10 +149,13 @@ function SetupCard({
       <CardContent>
         <MissingList items={missing} />
         {actionHref && (
-          <Button className="mt-4" size="sm" variant="outline" render={<Link href={actionHref} />}>
+          <Link
+            href={actionHref}
+            className={buttonVariants({ className: "mt-4", size: "sm", variant: "outline" })}
+          >
             {actionLabel ?? "Open"}
             <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
+          </Link>
         )}
       </CardContent>
     </Card>
@@ -167,7 +205,12 @@ export default async function SetupPage() {
   }
 
   const biz = business as Business;
-  const readiness = await getBusinessReadiness(supabase, profile.business_id);
+  const [readiness, betaReadiness, dataIntegrity, safetyEvents] = await Promise.all([
+    getBusinessReadiness(supabase, profile.business_id),
+    getBetaReadiness(supabase, profile.business_id),
+    getBusinessDataIntegrity(supabase, profile.business_id),
+    getRecentSafetyEvents(supabase, profile.business_id),
+  ]);
   const businessVerticalLabel = getBusinessVerticalLabel(biz.industry);
 
   const canTestReviewRequest =
@@ -196,10 +239,10 @@ export default async function SetupPage() {
         title="Business setup"
         description="A clear path from profile basics to safe manual sending and automation checks."
         actions={
-          <Button render={<Link href="/settings" />}>
+          <Link href="/settings" className={buttonVariants()}>
             Open settings
             <ArrowRight className="h-4 w-4" />
-          </Button>
+          </Link>
         }
       />
 
@@ -243,6 +286,126 @@ export default async function SetupPage() {
           </div>
         </CardContent>
       </Card>
+
+      <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+        <Card>
+          <CardHeader className="gap-3 sm:flex sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ClipboardCheck className="h-4 w-4" />
+                Beta readiness
+              </CardTitle>
+              <CardDescription>
+                A read-only preflight for manual beta use. It never sends, queues, or repairs data.
+              </CardDescription>
+            </div>
+            <Badge
+              variant="outline"
+              className={
+                betaReadiness.readyForManualBeta
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+              }
+            >
+              {betaReadiness.readyForManualBeta ? "Manual beta ready" : "Needs attention"}
+            </Badge>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <p className="text-sm leading-6 text-muted-foreground">{betaReadiness.summary}</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {[
+                ["Mode", betaReadiness.mode],
+                ["Vertical", betaReadiness.verticalLabel],
+                ["Live provider test", betaReadiness.readyForLiveProviderTest ? "Ready" : "Not ready"],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border border-border/60 p-3">
+                  <p className="text-[0.68rem] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                    {label}
+                  </p>
+                  <p className="mt-2 text-sm font-medium text-foreground">{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="grid gap-2 text-sm sm:grid-cols-2">
+              {betaReadiness.checks.slice(0, 8).map((check) => (
+                <div key={check.id} className="rounded-lg border border-border/60 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium text-foreground">{check.label}</p>
+                    <Badge variant="outline" className={checkTone(check.status)}>
+                      {check.status}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    {check.explanation}
+                  </p>
+                  {check.nextAction && (
+                    <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                      Next: {check.nextAction}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="gap-3 sm:flex sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Database className="h-4 w-4" />
+                Data integrity diagnostics
+              </CardTitle>
+              <CardDescription>
+                Read-only checks for stale links, duplicate queue records, and unsafe lifecycle text.
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className={integrityTone(dataIntegrity.status)}>
+              {dataIntegrity.status}
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            {dataIntegrity.findings.length === 0 ? (
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm leading-6 text-muted-foreground">
+                No integrity findings were detected for this business.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {dataIntegrity.findings.slice(0, 5).map((finding) => (
+                  <div key={finding.id} className="rounded-lg border border-border/60 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">{finding.title}</p>
+                      <Badge
+                        variant="outline"
+                        className={
+                          finding.severity === "critical"
+                            ? "border-destructive/25 bg-destructive/10 text-destructive"
+                            : finding.severity === "warning"
+                              ? "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                              : "border-border/70 bg-muted/40 text-muted-foreground"
+                        }
+                      >
+                        {finding.affectedCount}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                      {finding.explanation}
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                      Recommended: {finding.recommendedFix}
+                    </p>
+                    {finding.sampleIds.length > 0 && (
+                      <p className="mt-2 truncate font-mono text-[0.68rem] text-muted-foreground">
+                        Samples: {finding.sampleIds.join(", ")}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <SetupCard
@@ -356,10 +519,54 @@ export default async function SetupPage() {
                 <span className="text-muted-foreground">Recent webhook events</span>
                 <Badge variant="outline">{readiness.leadCapture.recentWebhookEvents}</Badge>
               </div>
-              <Button size="sm" variant="outline" render={<Link href="/settings" />}>
+              <Link href="/settings" className={buttonVariants({ size: "sm", variant: "outline" })}>
                 Review webhook setup
                 <Webhook className="h-3.5 w-3.5" />
-              </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ShieldCheck className="h-4 w-4" />
+                Recent safety events
+              </CardTitle>
+              <CardDescription>
+                A compact event feed from review requests and automation action outcomes.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {safetyEvents.error ? (
+                <div className="rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm text-destructive">
+                  {formatError(safetyEvents.error)}
+                </div>
+              ) : safetyEvents.events.length === 0 ? (
+                <p className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
+                  No review request or automation action events have been recorded yet.
+                </p>
+              ) : (
+                safetyEvents.events.slice(0, 5).map((event) => (
+                  <div key={event.id} className="rounded-lg border border-border/60 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">{event.title}</p>
+                      <Badge variant="outline" className={eventTone(event.status)}>
+                        {event.wasAnythingSent ? "sent" : "not sent"}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatShortDate(event.occurredAt)} - {event.source}
+                      {event.channel ? ` - ${event.channel}` : ""}
+                    </p>
+                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                      {event.description}
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                      Next: {event.nextAction}
+                    </p>
+                  </div>
+                ))
+              )}
             </CardContent>
           </Card>
         </div>

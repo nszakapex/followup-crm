@@ -348,3 +348,22 @@ limit 20;
 ```
 
 This query is read-only and does not expose provider secrets.
+
+## Phase 11 Diagnostics
+
+Phase 11 adds read-only beta readiness and data integrity diagnostics. Review
+request behavior is unchanged: manual sends still use server-side readiness,
+preflight, duplicate prevention, lifecycle persistence, and confirmation when
+live mode is active.
+
+Diagnostics check that review request lifecycle rows are coherent:
+
+- `sent` rows should have `sent_at`
+- `blocked` rows should have `blocked_at` and a safe reason
+- `failed` rows should have `failed_at` and a safe reason
+- `duplicate_prevented` rows should have `duplicate_prevented_at` and a safe reason
+- provider metadata should be safe and should not contain secret-like values
+- duplicate request identities should be visible before beta use
+
+These checks never call providers, never mutate rows, and never expose raw
+provider credentials or raw provider payloads.

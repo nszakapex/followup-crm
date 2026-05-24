@@ -27,7 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { ChannelSelector } from "@/components/automations/channel-selector";
 import { EditTemplateDialog } from "@/components/automations/edit-template-dialog";
 import { ManualSendSubmitButton } from "@/components/reviews/manual-send-submit-button";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricCard } from "@/components/ui/metric-card";
@@ -300,10 +300,10 @@ export default async function AutomationsPage() {
                   : ""}
               </p>
             </div>
-            <Button variant="outline" render={<Link href="/setup" />}>
+            <Link href="/setup" className={buttonVariants({ variant: "outline" })}>
               Open setup
               <ArrowRight className="h-4 w-4" />
-            </Button>
+            </Link>
           </CardContent>
         </Card>
       )}
@@ -789,9 +789,9 @@ export default async function AutomationsPage() {
             title="No automations yet"
             description="Default automations are created automatically when this page loads. If this stays empty, check the database error above."
             action={
-              <Button variant="outline" render={<Link href="/settings" />}>
+              <Link href="/settings" className={buttonVariants({ variant: "outline" })}>
                 Review setup
-              </Button>
+              </Link>
             }
           />
         </Card>

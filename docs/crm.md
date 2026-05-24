@@ -69,6 +69,12 @@ vehicles, ceramic coating, or estimates, but the CRM itself should not become
 detailing-only. Unknown or unset business types use generic service-business
 templates.
 
+Phase 11 adds pre-beta reliability visibility without changing send behavior.
+The Setup page shows beta readiness, data integrity findings, recent safety
+events, and the current provider mode. These diagnostics are read-only: they do
+not send providers, queue work, repair data, expose secrets, add bulk controls,
+or add automatic sending.
+
 ## Pending automation action controls
 
 The detail page reuses the existing automation action server actions:
