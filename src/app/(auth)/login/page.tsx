@@ -1,9 +1,5 @@
-"use client";
-
-import { useState, useTransition } from "react";
 import Link from "next/link";
-import { signIn } from "@/app/actions/auth";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,19 +11,33 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export default function LoginPage() {
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+type LoginPageProps = {
+  searchParams?: Promise<{
+    error?: string | string[];
+  }>;
+};
 
-  function handleSubmit(formData: FormData) {
-    setError(null);
-    startTransition(async () => {
-      const result = await signIn(formData);
-      if (result?.error) {
-        setError(result.error);
-      }
-    });
+function getErrorMessage(error: string | string[] | undefined) {
+  const errorCode = Array.isArray(error) ? error[0] : error;
+
+  if (errorCode === "missing") {
+    return "Email and password are required.";
   }
+
+  if (errorCode === "invalid") {
+    return "Unable to sign in with those credentials.";
+  }
+
+  if (errorCode === "stale_action") {
+    return "The sign-in page refreshed after a local app update. Try signing in again.";
+  }
+
+  return null;
+}
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = await searchParams;
+  const error = getErrorMessage(params?.error);
 
   return (
     <Card>
@@ -37,7 +47,7 @@ export default function LoginPage() {
           Sign in to manage your leads and follow-ups
         </CardDescription>
       </CardHeader>
-      <form action={handleSubmit}>
+      <form action="/api/auth/login" method="post">
         <CardContent className="space-y-4">
           {error && (
             <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -50,6 +60,7 @@ export default function LoginPage() {
               id="email"
               name="email"
               type="email"
+              autoComplete="email"
               placeholder="you@example.com"
               required
             />
@@ -60,18 +71,25 @@ export default function LoginPage() {
               id="password"
               name="password"
               type="password"
+              autoComplete="current-password"
               placeholder="Your password"
               required
             />
           </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-3">
-          <Button type="submit" className="w-full" disabled={isPending}>
-            {isPending ? "Signing in..." : "Sign in"}
-          </Button>
+          <button
+            type="submit"
+            className={buttonVariants({ className: "w-full" })}
+          >
+            Sign in
+          </button>
           <p className="text-sm text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link href="/signup" className="text-primary underline-offset-4 hover:underline">
+            <Link
+              href="/signup"
+              className="text-primary underline-offset-4 hover:underline"
+            >
               Sign up
             </Link>
           </p>

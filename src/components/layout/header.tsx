@@ -1,7 +1,6 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { signOut } from "@/app/actions/auth";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +27,12 @@ export function Header() {
   const router = useRouter();
   const { user, business } = useAuth();
 
+  async function handleSignOut() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
+
   return (
     <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-border/60 bg-background/75 px-4 backdrop-blur-xl sm:gap-x-6 sm:px-6 lg:px-8">
       <MobileNav />
@@ -49,7 +54,7 @@ export function Header() {
             render={<Button variant="ghost" className="relative h-9 w-9 rounded-full" />}
           >
             <Avatar className="h-9 w-9">
-              <AvatarFallback className="bg-primary/10 text-primary text-sm font-medium">
+              <AvatarFallback className="bg-primary-soft text-primary text-sm font-medium">
                 {getInitials(user?.name)}
               </AvatarFallback>
             </Avatar>
@@ -71,7 +76,7 @@ export function Header() {
               Settings
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => signOut()}>
+            <DropdownMenuItem onClick={handleSignOut}>
               <LogOut className="mr-2 h-4 w-4" />
               Sign out
             </DropdownMenuItem>

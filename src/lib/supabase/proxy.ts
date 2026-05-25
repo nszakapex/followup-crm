@@ -36,18 +36,31 @@ export async function updateSession(request: NextRequest) {
 
   // Redirect unauthenticated users away from protected routes
   const pathname = request.nextUrl.pathname;
+  const isStaleAuthServerActionPost =
+    request.method === "POST" &&
+    (pathname === "/login" || pathname === "/signup") &&
+    request.headers.has("next-action");
+
+  if (isStaleAuthServerActionPost) {
+    const url = request.nextUrl.clone();
+    url.searchParams.set("error", "stale_action");
+    return NextResponse.redirect(url, { status: 303 });
+  }
+
   const isAuthRoute =
     pathname.startsWith("/login") ||
     pathname.startsWith("/signup") ||
     pathname.startsWith("/callback");
   const isReviewRedirectRoute = pathname.startsWith("/r/");
   const isWebhookRoute = pathname.startsWith("/api/webhooks/");
+  const isAuthApiRoute = pathname.startsWith("/api/auth/");
   const isAutomationRunRoute =
     pathname === "/api/automations/run" ||
     pathname === "/api/automations/scheduled-run";
   const isPublicRoute =
     pathname === "/" ||
     isAuthRoute ||
+    isAuthApiRoute ||
     isReviewRedirectRoute ||
     isWebhookRoute ||
     isAutomationRunRoute;

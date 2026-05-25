@@ -1,9 +1,5 @@
-"use client";
-
-import { useState, useTransition } from "react";
 import Link from "next/link";
-import { signUp } from "@/app/actions/auth";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,24 +11,77 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-export default function SignupPage() {
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+type SignupPageProps = {
+  searchParams?: Promise<{
+    error?: string | string[];
+    message?: string | string[];
+  }>;
+};
 
-  function handleSubmit(formData: FormData) {
-    setError(null);
-    setMessage(null);
-    startTransition(async () => {
-      const result = await signUp(formData);
-      if (result?.error) {
-        setError(result.error);
-      }
-      if (result?.message) {
-        setMessage(result.message);
-      }
-    });
+function getSingleParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function getErrorMessage(error: string | string[] | undefined) {
+  const errorCode = getSingleParam(error);
+
+  if (errorCode === "missing") {
+    return "All fields are required.";
   }
+
+  if (errorCode === "password") {
+    return "Password must be at least 8 characters.";
+  }
+
+  if (errorCode === "rate_limit") {
+    return "Supabase is rate limiting signup emails. For local smoke testing, disable email confirmation in Supabase Auth settings, then try again.";
+  }
+
+  if (errorCode === "invalid_email") {
+    return "Supabase rejected that email address. Use a real test email address instead of an example.com placeholder.";
+  }
+
+  if (errorCode === "already_registered") {
+    return "That email is already registered. Try signing in or use a different test email.";
+  }
+
+  if (errorCode === "server_setup") {
+    return "Account authentication succeeded, but server-side Supabase setup is missing. Check SUPABASE_SERVICE_ROLE_KEY in .env.local.";
+  }
+
+  if (errorCode === "business_setup") {
+    return "Account authentication succeeded, but business setup failed. Check the server console for the Supabase database error.";
+  }
+
+  if (errorCode === "profile_setup") {
+    return "Account authentication succeeded, but user profile setup failed. Check the server console for the Supabase database error.";
+  }
+
+  if (errorCode === "signup_failed") {
+    return "Signup failed. Check the server console for the Supabase auth error.";
+  }
+
+  if (errorCode === "stale_action") {
+    return "The signup page refreshed after a local app update. Try creating the account again.";
+  }
+
+  return null;
+}
+
+function getSuccessMessage(message: string | string[] | undefined) {
+  const messageCode = getSingleParam(message);
+
+  if (messageCode === "confirm") {
+    return "Account created. Confirm your email, then sign in to continue onboarding.";
+  }
+
+  return null;
+}
+
+export default async function SignupPage({ searchParams }: SignupPageProps) {
+  const params = await searchParams;
+  const error = getErrorMessage(params?.error);
+  const message = getSuccessMessage(params?.message);
 
   return (
     <Card>
@@ -42,7 +91,7 @@ export default function SignupPage() {
           Create your account and set up automated follow-ups in minutes
         </CardDescription>
       </CardHeader>
-      <form action={handleSubmit}>
+      <form action="/api/auth/signup" method="post">
         <CardContent className="space-y-4">
           {error && (
             <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -60,6 +109,7 @@ export default function SignupPage() {
               id="name"
               name="name"
               type="text"
+              autoComplete="name"
               placeholder="Jane Smith"
               required
             />
@@ -70,6 +120,7 @@ export default function SignupPage() {
               id="email"
               name="email"
               type="email"
+              autoComplete="email"
               placeholder="you@example.com"
               required
             />
@@ -80,6 +131,7 @@ export default function SignupPage() {
               id="password"
               name="password"
               type="password"
+              autoComplete="new-password"
               placeholder="At least 8 characters"
               required
               minLength={8}
@@ -87,12 +139,18 @@ export default function SignupPage() {
           </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-3">
-          <Button type="submit" className="w-full" disabled={isPending}>
-            {isPending ? "Creating account..." : "Create account"}
-          </Button>
+          <button
+            type="submit"
+            className={buttonVariants({ className: "w-full" })}
+          >
+            Create account
+          </button>
           <p className="text-sm text-muted-foreground">
             Already have an account?{" "}
-            <Link href="/login" className="text-primary underline-offset-4 hover:underline">
+            <Link
+              href="/login"
+              className="text-primary underline-offset-4 hover:underline"
+            >
               Sign in
             </Link>
           </p>

@@ -41,22 +41,22 @@ export function MobileNav() {
         <Menu className="h-5 w-5" />
         <span className="sr-only">Open menu</span>
       </SheetTrigger>
-      <SheetContent side="left" className="w-64 p-0">
+      <SheetContent side="left" className="w-64 p-0 bg-shell border-shell-border">
         <SheetTitle className="sr-only">Navigation</SheetTitle>
-        <div className="flex h-20 items-center border-b border-border/60 px-6">
+        <div className="flex h-20 items-center border-b border-shell-border px-5">
           <Link
             href="/dashboard"
             onClick={() => setOpen(false)}
             className="flex items-center gap-2"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
               <Zap className="h-4 w-4 text-primary-foreground" />
             </div>
             <div>
-              <span className="block font-heading text-base font-semibold tracking-tight">
+              <span className="block font-heading text-base font-semibold tracking-tight text-shell-text">
                 FollowUp
               </span>
-              <span className="block text-[0.64rem] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              <span className="block text-[0.64rem] font-medium uppercase tracking-[0.18em] text-shell-muted">
                 CRM
               </span>
             </div>
@@ -73,11 +73,16 @@ export function MobileNav() {
                 className={cn(
                   "flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm font-medium tracking-[-0.01em] transition-all",
                   isActive
-                    ? "bg-foreground text-background shadow-sm"
-                    : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                    ? "bg-shell-card text-white shadow-sm"
+                    : "text-shell-muted hover:bg-shell-card/60 hover:text-shell-text"
                 )}
               >
-                <item.icon className="h-4 w-4 shrink-0" />
+                <item.icon
+                  className={cn(
+                    "h-4 w-4 shrink-0",
+                    isActive ? "text-primary" : ""
+                  )}
+                />
                 {item.name}
               </Link>
             );

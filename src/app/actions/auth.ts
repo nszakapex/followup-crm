@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 type SafeError = {
@@ -45,6 +46,48 @@ function getSignupAuthMessage(error: SafeError) {
   return `Signup failed: ${error.message}`;
 }
 
+function normalizeOrigin(value: string | null | undefined) {
+  if (!value?.trim()) return null;
+
+  try {
+    const url = new URL(value.trim());
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+async function getRequestOrigin() {
+  const requestHeaders = await headers();
+  const origin = normalizeOrigin(requestHeaders.get("origin"));
+  if (origin) return origin;
+
+  const host =
+    requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  if (!host) return null;
+
+  const forwardedProto = requestHeaders.get("x-forwarded-proto");
+  const proto =
+    forwardedProto ?? (process.env.NODE_ENV === "production" ? "https" : "http");
+
+  return normalizeOrigin(`${proto}://${host}`);
+}
+
+async function getAuthCallbackUrl(next = "/dashboard") {
+  const configuredOrigin =
+    process.env.NODE_ENV === "production"
+      ? normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL) ??
+        normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL)
+      : null;
+  const origin =
+    configuredOrigin ?? (await getRequestOrigin()) ?? "http://localhost:3000";
+  const callbackUrl = new URL("/callback", origin);
+
+  if (next) callbackUrl.searchParams.set("next", next);
+
+  return callbackUrl.toString();
+}
+
 async function deleteAuthUser(userId: string) {
   try {
     const admin = createAdminClient();
@@ -84,6 +127,7 @@ export async function signUp(formData: FormData) {
     password,
     options: {
       data: { name },
+      emailRedirectTo: await getAuthCallbackUrl("/onboarding"),
     },
   });
 
@@ -191,6 +235,18 @@ export async function signUp(formData: FormData) {
   redirect("/onboarding");
 }
 
+type AuthActionState = {
+  error?: string | null;
+  message?: string | null;
+};
+
+export async function signUpFormAction(
+  _previousState: AuthActionState,
+  formData: FormData
+): Promise<AuthActionState> {
+  return (await signUp(formData)) ?? { error: null, message: null };
+}
+
 export async function signIn(formData: FormData) {
   const supabase = await createClient();
 
@@ -211,6 +267,13 @@ export async function signIn(formData: FormData) {
   }
 
   redirect("/dashboard");
+}
+
+export async function signInFormAction(
+  _previousState: AuthActionState,
+  formData: FormData
+): Promise<AuthActionState> {
+  return (await signIn(formData)) ?? { error: null, message: null };
 }
 
 export async function signOut() {
