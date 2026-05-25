@@ -128,7 +128,7 @@ export function SendReviewRequestDialog({
           </Button>
         }
       />
-      <DialogContent>
+      <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] overflow-y-auto sm:w-full">
         <DialogHeader>
           <DialogTitle>Send review request</DialogTitle>
           <DialogDescription>
@@ -156,7 +156,7 @@ export function SendReviewRequestDialog({
                 setSelectedLeadId(nextLeadId);
                 refreshPreflight(nextLeadId, channel);
               }}
-              className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="h-10 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               required
             >
               {leads.map((lead) => (
@@ -177,6 +177,7 @@ export function SendReviewRequestDialog({
                   setChannel("sms");
                   refreshPreflight(selectedLeadId, "sms");
                 }}
+                className="min-h-10 flex-1"
               >
                 SMS
               </Button>
@@ -187,6 +188,7 @@ export function SendReviewRequestDialog({
                   setChannel("email");
                   refreshPreflight(selectedLeadId, "email");
                 }}
+                className="min-h-10 flex-1"
               >
                 Email
               </Button>

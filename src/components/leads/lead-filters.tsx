@@ -16,17 +16,19 @@ const filters = [
 
 export function LeadFilters({ currentStatus }: { currentStatus: string }) {
   return (
-    <div className="flex flex-wrap gap-1 rounded-lg border border-border/70 bg-muted/30 p-1">
-      {filters.map((filter) => (
-        <Link key={filter.value} href={`/leads?status=${filter.value}`}>
-          <Badge
-            variant={currentStatus === filter.value ? "default" : "ghost"}
-            className="h-7 cursor-pointer rounded-md px-3 text-xs"
-          >
-            {filter.label}
-          </Badge>
-        </Link>
-      ))}
+    <div className="-mx-1 overflow-x-auto px-1 pb-1">
+      <div className="flex w-max min-w-full gap-1 rounded-lg border border-border/70 bg-muted/30 p-1">
+        {filters.map((filter) => (
+          <Link key={filter.value} href={`/leads?status=${filter.value}`}>
+            <Badge
+              variant={currentStatus === filter.value ? "default" : "ghost"}
+              className="h-9 cursor-pointer rounded-md px-3 text-xs whitespace-nowrap"
+            >
+              {filter.label}
+            </Badge>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
