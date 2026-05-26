@@ -1,6 +1,12 @@
 # Lead Capture Webhook
 
-Use the lead capture webhook to send website form submissions or automation-tool events into FollowUp CRM.
+Use the lead capture webhook to send website form submissions, missed-call tool
+events, or automation-tool events into FollowUp CRM.
+
+This is the initial pilot missed-call ingestion path. It is intentionally a
+private webhook, not a full phone-provider integration. The route creates or
+updates leads only; it does not send SMS, email, review requests, follow-ups, or
+provider messages.
 
 ## Endpoint
 
@@ -111,6 +117,15 @@ Validation error:
 }
 ```
 
+Invalid shape:
+
+```json
+{
+  "success": false,
+  "error": "Invalid webhook payload. Send a JSON object with a name, phone or email, and optional source/message fields."
+}
+```
+
 Invalid secret:
 
 ```json
@@ -136,6 +151,20 @@ If a match is found, the CRM updates safe fields and preserves progressed lead s
 - Do not put the webhook secret in public docs, screenshots, or client-side source code.
 - The webhook does not send SMS, email, or review requests.
 - The route stores a sanitized payload summary, not the full raw submission.
+- The route validates the business id, checks the private secret, rejects oversized
+  or invalid JSON payloads, and requires at least one contact destination.
+- For public SaaS scale, add provider-specific signatures/rate limiting before
+  broad external use.
+
+## Pilot Missed-Call Test
+
+1. Confirm the business has a webhook secret in Settings.
+2. Send a POST request with a fake/test phone number and source such as
+   `Missed call - pilot test`.
+3. Open `/leads` and confirm one lead was created or updated.
+4. Repeat the same payload and confirm it updates the same lead instead of
+   creating a duplicate.
+5. Confirm no review request, SMS, email, or automation provider send occurred.
 
 ## Fetch Example
 

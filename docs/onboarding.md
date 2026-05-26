@@ -209,6 +209,27 @@ beta readiness, data integrity diagnostics, recent safety events, and the
 current provider safety mode. These checks do not send messages, queue actions,
 repair data, or expose provider secrets.
 
+## Phase 12 Concierge Pilot Hardening
+
+Phase 12 keeps the product focused on missed-call capture, lead follow-up,
+review requests, and business-owner CRM usage. It does not add agents,
+prospecting, scraping, bulk outbound campaigns, automatic provider sends, retry
+sends, or send-all behavior.
+
+For a controlled concierge pilot:
+
+- `/admin` is guarded and internal content is not visible to regular users.
+- Password reset is available from the login page.
+- Billing is labeled as manually handled for pilot use; no fake trial clock or
+  subscription automation is implied.
+- `/setup` and `/settings` show safe server configuration readiness without
+  exposing environment values or provider secrets.
+- Lead capture is documented as a private webhook-based pilot ingestion path,
+  not a full phone-provider integration.
+- Provider setup can still be handled manually by the FollowUp operator.
+- Live provider sends remain manual, explicit, one action at a time, and
+  confirmation-gated.
+
 Run the read-only verifier for a beta workspace:
 
 ```powershell

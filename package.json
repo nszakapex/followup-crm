@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --import tsx --test tests/env-validation.test.ts tests/webhook-payload.test.ts tests/automation-route-safety.test.ts",
     "seed:demo": "node scripts/seed-demo.mjs",
     "reset:demo": "node scripts/reset-demo.mjs",
     "verify:beta": "node scripts/verify-beta.mjs",
@@ -37,6 +38,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
+    "tsx": "^4.22.3",
     "typescript": "^5"
   }
 }

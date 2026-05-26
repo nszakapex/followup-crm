@@ -134,3 +134,18 @@ The demo seed includes two automation smoke-test leads:
 - Liam Hughes: a new missed-call demo lead.
 
 After a demo reset/seed and a confirmed automation run, these records should create pending automation actions without calling SMS, email, Twilio, Resend, or review request delivery. The reset script deletes automation actions linked to demo leads before deleting those leads, so stale pending actions do not survive a fresh fixture reset.
+
+## Phase 12 Concierge Pilot Checklist
+
+Before a real local service business uses the CRM:
+
+1. Confirm `/admin` is not visible or usable by a normal business user.
+2. Confirm the owner can request a password reset from `/login`.
+3. Confirm `/setup` shows business profile, review link, delivery mode, server
+   configuration, and lead capture readiness without exposing secrets.
+4. Confirm `/billing` clearly says pilot billing is handled manually.
+5. Confirm the private lead webhook can create or update one test lead.
+6. Confirm the owner can view that lead and approve actions one at a time.
+7. Confirm no send-all, bulk send, retry send, cron send, or automatic provider
+   send exists.
+8. Run `npm run test`, `npm run lint`, and `npm run build`.

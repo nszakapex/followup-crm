@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ReadinessPanel, type ReadinessItem } from "@/components/ui/readiness-panel";
 import { getBusinessVerticalLabel } from "@/lib/business-verticals/verticals";
+import { getServerEnvReadiness } from "@/lib/env/validation";
 import {
   getDeliveryModeLabel,
   getEmailProviderReadiness,
@@ -75,6 +76,7 @@ export default async function SettingsPage() {
 
   const biz = business as Business;
   const businessVerticalLabel = getBusinessVerticalLabel(biz.industry);
+  const envReadiness = getServerEnvReadiness();
   const [
     { data: leadsData, error: leadsError },
     { data: reviewRequestsData, error: reviewRequestsError },
@@ -302,6 +304,12 @@ export default async function SettingsPage() {
                 <span className="text-muted-foreground">Manual send mode</span>
                 <Badge variant="outline">
                   {preferredManualReadiness.mode}
+                </Badge>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Server configuration</span>
+                <Badge variant="outline">
+                  {envReadiness.status}
                 </Badge>
               </div>
               <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">

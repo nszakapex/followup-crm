@@ -192,7 +192,7 @@ export default async function DashboardPage() {
     supabase
       .from("businesses")
       .select(
-        "id, name, google_review_link, review_requests_enabled, lead_followup_enabled, twilio_from_number, resend_from_email"
+        "id, name, google_review_link, review_requests_enabled, lead_followup_enabled, twilio_from_number, resend_from_email, webhook_secret"
       )
       .eq("id", businessId)
       .single(),
@@ -268,6 +268,7 @@ export default async function DashboardPage() {
   const conversionRate = percent(conversionCount, totalLeads);
   const hasBusinessProfile = Boolean(business?.name);
   const hasReviewLink = Boolean(business?.google_review_link);
+  const leadCaptureReady = Boolean(business?.webhook_secret);
   const reviewRequestsEnabled = Boolean(business?.review_requests_enabled);
   const leadFollowupEnabled = Boolean(business?.lead_followup_enabled);
   const smsReadiness = getSmsProviderReadiness(business?.twilio_from_number);
@@ -356,6 +357,15 @@ export default async function DashboardPage() {
       status: totalLeads > 0 ? "complete" : "needs_setup",
       href: "/leads",
       cta: totalLeads > 0 ? "Open" : "Add lead",
+    },
+    {
+      title: "Missed-call / lead source",
+      description: leadCaptureReady
+        ? "A private pilot webhook is configured for form or missed-call lead ingestion."
+        : "Set up the private pilot webhook before relying on automated missed-call capture.",
+      status: leadCaptureReady ? "complete" : "needs_setup",
+      href: "/settings",
+      cta: "Review",
     },
     {
       title: "Review request flow",

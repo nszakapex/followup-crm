@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-type LoginPageProps = {
+type ForgotPasswordPageProps = {
   searchParams?: Promise<{
     error?: string | string[];
     message?: string | string[];
@@ -23,34 +23,27 @@ function getSingleParam(value: string | string[] | undefined) {
 }
 
 function getErrorMessage(error: string | string[] | undefined) {
-  const errorCode = getSingleParam(error);
+  const code = getSingleParam(error);
 
-  if (errorCode === "missing") {
-    return "Email and password are required.";
-  }
-
-  if (errorCode === "invalid") {
-    return "Unable to sign in with those credentials.";
-  }
-
-  if (errorCode === "stale_action") {
-    return "The sign-in page refreshed after a local app update. Try signing in again.";
-  }
+  if (code === "missing") return "Enter the email address for your account.";
+  if (code === "failed") return "Password reset could not be started. Try again.";
 
   return null;
 }
 
 function getSuccessMessage(message: string | string[] | undefined) {
-  const messageCode = getSingleParam(message);
+  const code = getSingleParam(message);
 
-  if (messageCode === "password_updated") {
-    return "Password updated. Sign in with your new password.";
+  if (code === "sent") {
+    return "If that email has an account, a password reset link has been sent.";
   }
 
   return null;
 }
 
-export default async function LoginPage({ searchParams }: LoginPageProps) {
+export default async function ForgotPasswordPage({
+  searchParams,
+}: ForgotPasswordPageProps) {
   const params = await searchParams;
   const error = getErrorMessage(params?.error);
   const message = getSuccessMessage(params?.message);
@@ -58,12 +51,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   return (
     <Card>
       <CardHeader className="text-center">
-        <CardTitle className="text-2xl font-semibold">Welcome back</CardTitle>
+        <CardTitle className="text-2xl font-semibold">Reset password</CardTitle>
         <CardDescription>
-          Sign in to manage your leads and follow-ups
+          Enter your account email and we&apos;ll send a secure reset link.
         </CardDescription>
       </CardHeader>
-      <form action="/api/auth/login" method="post">
+      <form action="/api/auth/request-password-reset" method="post">
         <CardContent className="space-y-4">
           {error && (
             <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -86,42 +79,20 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               required
             />
           </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="password">Password</Label>
-              <Link
-                href="/forgot-password"
-                className="text-xs text-primary underline-offset-4 hover:underline"
-              >
-                Forgot password?
-              </Link>
-            </div>
-            <Input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              placeholder="Your password"
-              required
-            />
-          </div>
         </CardContent>
         <CardFooter className="flex flex-col gap-3">
           <button
             type="submit"
             className={buttonVariants({ className: "w-full" })}
           >
-            Sign in
+            Send reset link
           </button>
-          <p className="text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <Link
-              href="/signup"
-              className="text-primary underline-offset-4 hover:underline"
-            >
-              Sign up
-            </Link>
-          </p>
+          <Link
+            href="/login"
+            className="text-sm text-primary underline-offset-4 hover:underline"
+          >
+            Back to sign in
+          </Link>
         </CardFooter>
       </form>
     </Card>

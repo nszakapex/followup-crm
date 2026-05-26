@@ -11,6 +11,9 @@ import {
 import type { LeadStatus } from "@/types/database";
 
 const MAX_PAYLOAD_BYTES = 64_000;
+const INVALID_PAYLOAD_ERROR =
+  "Invalid webhook payload. Send a JSON object with a name, phone or email, and optional source/message fields.";
+const MISSING_CONTACT_ERROR = "Lead requires at least a phone number or email.";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -407,7 +410,7 @@ export async function POST(
     });
 
     return jsonResponse(
-      { success: false, error: "Invalid webhook payload." },
+      { success: false, error: INVALID_PAYLOAD_ERROR },
       400
     );
   }
@@ -424,7 +427,7 @@ export async function POST(
     });
 
     return jsonResponse(
-      { success: false, error: "Invalid webhook payload." },
+      { success: false, error: INVALID_PAYLOAD_ERROR },
       400
     );
   }
@@ -434,7 +437,7 @@ export async function POST(
       supabase,
       businessId,
       leadPayload,
-      "Lead requires at least a phone number or email."
+      MISSING_CONTACT_ERROR
     );
 
     if (eventError) {
@@ -453,7 +456,7 @@ export async function POST(
     });
 
     return jsonResponse(
-      { success: false, error: "Lead requires at least a phone number or email." },
+      { success: false, error: MISSING_CONTACT_ERROR },
       400
     );
   }
@@ -558,6 +561,7 @@ export async function POST(
     entityType: "lead",
     entityId: saveResult.leadId,
     metadata: {
+      ingestionMode: "pilot_webhook",
       source: leadPayload.source,
       matchedBy: existingLead ? "email_phone_or_external_id" : null,
     },

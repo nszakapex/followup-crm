@@ -1,8 +1,35 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Building2, Users, Zap, AlertTriangle } from "lucide-react";
+import { AlertTriangle, Building2, Lock, Users, Zap } from "lucide-react";
+import { requireAdmin } from "@/lib/admin/require-admin";
 
-export default function AdminPage() {
+export default async function AdminPage() {
+  const admin = await requireAdmin();
+
+  if (!admin.authorized) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Admin Portal</h1>
+          <p className="text-muted-foreground mt-1">
+            Internal tools are restricted to admin users.
+          </p>
+        </div>
+
+        <Card className="border-amber-500/25 bg-amber-500/5">
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <Lock className="mb-3 h-10 w-10 text-amber-600/70" />
+            <h3 className="font-medium text-foreground">Admin access required</h3>
+            <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+              This workspace account is not authorized to view internal diagnostics
+              or cross-business administration. No internal data was loaded.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>

@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { evaluateProviderSendRequest } from "@/lib/automations/route-safety";
 import { runAutomations } from "@/lib/automations/run-automations";
 import type { RunAutomationsResult } from "@/lib/automations/types";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -249,38 +250,33 @@ export async function POST(request: Request) {
     );
   }
 
-  const allowProviderSends = parseBoolean(body.allowProviderSends, false);
+  const providerSendPolicy = evaluateProviderSendRequest(body.allowProviderSends);
 
-  if (allowProviderSends === null) {
-    return jsonResponse(
-      { success: false, error: "allowProviderSends must be a boolean." },
-      400
-    );
-  }
-
-  if (allowProviderSends) {
+  if (!providerSendPolicy.ok) {
     const completedAt = new Date().toISOString();
-    await logRunEvent({
-      businessId,
-      action: "automation_run.failed",
-      metadata: buildRunMetadata({
+    if (providerSendPolicy.requested) {
+      await logRunEvent({
         businessId,
-        dryRun,
-        confirmRun,
-        source: "api",
-        durationMs: Date.now() - startedAt,
-        completedAt,
-        error: "Provider sends are not enabled for scheduled automation runs.",
-        allowProviderSendsRequested: true,
-      }),
-    });
+        action: "automation_run.failed",
+        metadata: buildRunMetadata({
+          businessId,
+          dryRun,
+          confirmRun,
+          source: "api",
+          durationMs: Date.now() - startedAt,
+          completedAt,
+          error: providerSendPolicy.error,
+          allowProviderSendsRequested: true,
+        }),
+      });
+    }
 
     return jsonResponse(
       {
         success: false,
-        error: "Provider sends are not enabled for scheduled automation runs.",
+        error: providerSendPolicy.error,
       },
-      400
+      providerSendPolicy.status
     );
   }
 

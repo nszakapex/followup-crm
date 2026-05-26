@@ -1055,3 +1055,18 @@ Business setup and provider readiness now live at:
 ```
 
 Use this page to confirm business profile, Google review link, provider readiness, lead data, automation readiness, and lead capture status before running confirmed automation checks or manually approving sends.
+
+## Phase 12 Concierge Pilot Notes
+
+Phase 12 does not change the automation send boundary. Automation API routes
+still create or inspect reviewable work only, and both `/api/automations/run`
+and `/api/automations/scheduled-run` reject `allowProviderSends:true`.
+
+For the concierge pilot:
+
+- use `/setup` to confirm server configuration, review link, provider mode, and
+  lead capture readiness
+- use the private lead webhook as the pilot missed-call/form ingestion path
+- review pending actions one at a time
+- do not add send-all, bulk approve, automatic sends, or cron provider delivery
+- run `npm run test`, `npm run lint`, and `npm run build` after safety changes

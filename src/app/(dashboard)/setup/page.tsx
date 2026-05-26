@@ -28,6 +28,7 @@ import { getBusinessVerticalLabel } from "@/lib/business-verticals/verticals";
 import { getBetaReadiness, type BetaReadinessCheckStatus } from "@/lib/diagnostics/beta-readiness";
 import { getBusinessDataIntegrity, type DataIntegrityStatus } from "@/lib/diagnostics/data-integrity";
 import { getRecentSafetyEvents, type SafetyEventStatus } from "@/lib/diagnostics/events";
+import { getServerEnvReadiness } from "@/lib/env/validation";
 import { getBusinessReadiness } from "@/lib/onboarding/readiness";
 import { getReviewProviderReadiness } from "@/lib/reviews/provider-readiness";
 import { createClient } from "@/lib/supabase/server";
@@ -211,6 +212,7 @@ export default async function SetupPage() {
     getBusinessDataIntegrity(supabase, profile.business_id),
     getRecentSafetyEvents(supabase, profile.business_id),
   ]);
+  const envReadiness = getServerEnvReadiness();
   const businessVerticalLabel = getBusinessVerticalLabel(biz.industry);
 
   const canTestReviewRequest =
@@ -406,6 +408,55 @@ export default async function SetupPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="gap-3 sm:flex sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle className="text-base">Pilot launch configuration</CardTitle>
+            <CardDescription>
+              Server-side environment checks for concierge pilot readiness. Secret values are
+              never shown.
+            </CardDescription>
+          </div>
+          <Badge
+            variant="outline"
+            className={
+              envReadiness.status === "ready"
+                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                : envReadiness.status === "blocked"
+                  ? "border-destructive/25 bg-destructive/10 text-destructive"
+                  : "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+            }
+          >
+            {envReadiness.status}
+          </Badge>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm leading-6 text-muted-foreground">
+            {envReadiness.summary} Current delivery mode: {envReadiness.mode}.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {envReadiness.checks.map((check) => (
+              <div key={check.id} className="rounded-lg border border-border/60 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-foreground">{check.label}</p>
+                  <Badge variant="outline" className={checkTone(check.status)}>
+                    {check.status}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  {check.explanation}
+                </p>
+                {check.nextAction && (
+                  <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+                    Next: {check.nextAction}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <SetupCard

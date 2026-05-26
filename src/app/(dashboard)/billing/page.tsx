@@ -1,49 +1,6 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CreditCard, Check } from "lucide-react";
-
-const plans = [
-  {
-    name: "Starter",
-    price: "$49",
-    description: "For businesses just getting started with follow-ups.",
-    features: [
-      "Up to 100 leads/month",
-      "Instant reply automation",
-      "24-hour follow-up",
-      "Google review requests",
-      "Email support",
-    ],
-  },
-  {
-    name: "Growth",
-    price: "$99",
-    description: "For growing businesses that want full automation.",
-    features: [
-      "Up to 500 leads/month",
-      "All automations",
-      "AI summaries & suggested replies",
-      "SMS + email channels",
-      "Webhook integrations",
-      "Priority support",
-    ],
-    popular: true,
-  },
-  {
-    name: "Premium",
-    price: "$199",
-    description: "For teams and multi-location businesses.",
-    features: [
-      "Unlimited leads",
-      "All Growth features",
-      "Multiple users & roles",
-      "CRM sync support",
-      "Admin portal",
-      "Dedicated support",
-    ],
-  },
-];
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ClipboardCheck, CreditCard, ShieldCheck } from "lucide-react";
 
 export default function BillingPage() {
   return (
@@ -51,56 +8,65 @@ export default function BillingPage() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Billing</h1>
         <p className="text-muted-foreground mt-1">
-          Manage your subscription and payment method.
+          Pilot billing is handled manually while this workspace is in concierge setup.
         </p>
       </div>
 
-      {/* Current plan */}
-      <Card>
+      <Card className="border-border/70 bg-muted/20">
         <CardHeader>
-          <CardTitle className="text-base">Current Plan</CardTitle>
-          <CardDescription>
-            You&apos;re currently on the free trial.
-          </CardDescription>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">Concierge pilot billing</CardTitle>
+              <CardDescription>
+                No automated subscription, trial clock, or card charge is active in this app.
+              </CardDescription>
+            </div>
+            <Badge variant="outline">Manual pilot</Badge>
+          </div>
         </CardHeader>
-        <CardContent className="flex items-center gap-3">
-          <Badge variant="secondary">Free Trial</Badge>
-          <span className="text-sm text-muted-foreground">14 days remaining</span>
+        <CardContent className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-lg border border-border/70 bg-background p-4">
+            <CreditCard className="h-4 w-4 text-muted-foreground" />
+            <p className="mt-3 text-sm font-medium">No card on file</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              The CRM will not collect payment information or attempt charges from this page.
+            </p>
+          </div>
+          <div className="rounded-lg border border-border/70 bg-background p-4">
+            <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
+            <p className="mt-3 text-sm font-medium">Setup handled with you</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              Pricing, invoices, and pilot terms are confirmed outside the app for now.
+            </p>
+          </div>
+          <div className="rounded-lg border border-border/70 bg-background p-4">
+            <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+            <p className="mt-3 text-sm font-medium">No entitlement automation yet</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              Stripe and self-serve plan management are intentionally deferred until after the pilot.
+            </p>
+          </div>
         </CardContent>
       </Card>
 
-      {/* Plans */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        {plans.map((plan) => (
-          <Card key={plan.name} className={plan.popular ? "border-primary" : ""}>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{plan.name}</CardTitle>
-                {plan.popular && <Badge>Popular</Badge>}
-              </div>
-              <div className="mt-2">
-                <span className="text-3xl font-semibold">{plan.price}</span>
-                <span className="text-muted-foreground text-sm">/month</span>
-              </div>
-              <CardDescription className="mt-2">{plan.description}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2">
-                {plan.features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2 text-sm">
-                    <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-              <Button className="w-full mt-6" variant={plan.popular ? "default" : "outline"} disabled>
-                <CreditCard className="h-4 w-4 mr-2" />
-                Choose {plan.name}
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">What this means during pilot</CardTitle>
+          <CardDescription>
+            The app stays focused on missed-call capture, follow-up, and review requests.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm leading-6 text-muted-foreground">
+          <p>
+            The business owner can use the CRM without seeing fake trial dates or disabled plan
+            choices. Billing questions are handled directly by the FollowUp CRM operator.
+          </p>
+          <p>
+            Before public SaaS launch, this page should be replaced with Stripe checkout,
+            subscription status, invoices, and a customer portal.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

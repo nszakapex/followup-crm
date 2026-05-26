@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { evaluateProviderSendRequest } from "@/lib/automations/route-safety";
 import { runAutomations } from "@/lib/automations/run-automations";
 import {
   listBusinessesEligibleForScheduledAutomation,
@@ -290,22 +291,15 @@ export async function POST(request: Request) {
     );
   }
 
-  const allowProviderSends = parseBoolean(body.allowProviderSends, false);
+  const providerSendPolicy = evaluateProviderSendRequest(body.allowProviderSends);
 
-  if (allowProviderSends === null) {
-    return jsonResponse(
-      { success: false, error: "allowProviderSends must be a boolean." },
-      400
-    );
-  }
-
-  if (allowProviderSends) {
+  if (!providerSendPolicy.ok) {
     return jsonResponse(
       {
         success: false,
-        error: "Provider sends are not enabled for scheduled automation runs.",
+        error: providerSendPolicy.error,
       },
-      400
+      providerSendPolicy.status
     );
   }
 

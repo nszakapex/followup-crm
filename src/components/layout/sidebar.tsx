@@ -11,7 +11,6 @@ import {
   MessageSquare,
   Settings,
   CreditCard,
-  ShieldCheck,
   ClipboardCheck,
 } from "lucide-react";
 
@@ -24,10 +23,6 @@ const navigation = [
   { name: "Messages", href: "/messages", icon: MessageSquare },
   { name: "Settings", href: "/settings", icon: Settings },
   { name: "Billing", href: "/billing", icon: CreditCard },
-];
-
-const adminNav = [
-  { name: "Admin", href: "/admin", icon: ShieldCheck },
 ];
 
 export function Sidebar() {
@@ -80,32 +75,7 @@ export function Sidebar() {
             })}
 
             <li className="mt-auto">
-              <div className="mb-3">
-                <Separator />
-              </div>
-              {adminNav.map((item) => {
-                const isActive = pathname === item.href;
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={cn(
-                      "group flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm font-medium tracking-[-0.01em] transition-all",
-                      isActive
-                        ? "bg-shell-card text-white shadow-sm"
-                        : "text-shell-muted hover:bg-shell-card/60 hover:text-shell-text"
-                    )}
-                  >
-                    <item.icon
-                      className={cn(
-                        "h-4 w-4 shrink-0",
-                        isActive ? "text-primary" : ""
-                      )}
-                    />
-                    {item.name}
-                  </Link>
-                );
-              })}
+              <Separator />
             </li>
           </ul>
         </nav>

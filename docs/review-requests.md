@@ -367,3 +367,17 @@ Diagnostics check that review request lifecycle rows are coherent:
 
 These checks never call providers, never mutate rows, and never expose raw
 provider credentials or raw provider payloads.
+
+## Phase 12 Pilot Hardening
+
+Phase 12 keeps review delivery manual and owner-safe. Password reset, admin
+guarding, environment readiness, pilot billing clarity, and webhook ingestion
+documentation were hardened around the existing review request lifecycle.
+
+Review request behavior is unchanged:
+
+- test/skip mode records no live provider message
+- blocked means no provider call occurred
+- duplicate prevention remains server-side and destination-aware
+- live sends still require an explicit manual action and confirmation
+- automation and scheduled routes still cannot send provider messages

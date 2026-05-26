@@ -50,6 +50,7 @@ export async function updateSession(request: NextRequest) {
   const isAuthRoute =
     pathname.startsWith("/login") ||
     pathname.startsWith("/signup") ||
+    pathname.startsWith("/forgot-password") ||
     pathname.startsWith("/callback");
   const isReviewRedirectRoute = pathname.startsWith("/r/");
   const isWebhookRoute = pathname.startsWith("/api/webhooks/");
@@ -72,7 +73,7 @@ export async function updateSession(request: NextRequest) {
   }
 
   // Redirect authenticated users away from auth pages to dashboard
-  if (user && isAuthRoute) {
+  if (user && isAuthRoute && !pathname.startsWith("/callback")) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
