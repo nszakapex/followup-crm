@@ -206,10 +206,10 @@ export default async function SettingsPage() {
           : "needs_setup",
     },
     {
-      title: "Lead capture webhook",
+      title: "Pilot missed-call / lead webhook",
       description: leadCaptureReady
-        ? "Website forms can create or update leads through the private endpoint."
-        : "Lead capture is not configured for this business.",
+        ? "Private webhook ingestion is ready for the concierge pilot."
+        : "Pilot lead capture is not configured for this business.",
       status: leadCaptureReady ? "complete" : "needs_setup",
     },
     {
@@ -391,10 +391,11 @@ export default async function SettingsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Webhook className="h-4 w-4" />
-                Lead capture webhook
+                Pilot missed-call / lead webhook
               </CardTitle>
               <CardDescription>
-                Use this private endpoint from a website form or automation tool.
+                Use this private endpoint from a website form, missed-call tool, or
+                concierge pilot automation.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -415,13 +416,13 @@ export default async function SettingsPage() {
                 </div>
               ) : (
                 <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
-                  Lead capture is not configured for this business.
+                  Pilot lead capture is not configured for this business.
                 </div>
               )}
               <p className="text-xs leading-5 text-muted-foreground">
                 Keep this URL private because it contains the lead capture secret. The CRM
                 creates or updates matching leads by email first, then phone. Phone or email is
-                required.
+                required. This pilot webhook does not send SMS, email, or review requests.
               </p>
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">

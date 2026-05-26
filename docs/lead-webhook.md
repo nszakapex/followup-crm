@@ -166,6 +166,9 @@ If a match is found, the CRM updates safe fields and preserves progressed lead s
    creating a duplicate.
 5. Confirm no review request, SMS, email, or automation provider send occurred.
 
+See [concierge-pilot.md](./concierge-pilot.md) for the full end-to-end pilot
+workflow and mobile QA checklist.
+
 ## Fetch Example
 
 ```ts

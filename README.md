@@ -46,8 +46,8 @@ http://localhost:3000
 ```
 
 For mobile LAN testing, run the dev server on the PC and open the LAN URL from
-the phone. Supabase Auth redirect URLs must include both localhost and the LAN
-origin.
+the phone. Supabase Auth redirect URLs must include localhost, the LAN origin,
+and production callback/update-password URLs. See `docs/concierge-pilot.md`.
 
 ## Required Environment
 
@@ -158,6 +158,9 @@ Expected behavior:
 - no automation action is approved automatically
 
 See `docs/lead-webhook.md` for the full webhook contract.
+
+For the full pilot workflow, provider validation steps, mobile QA, and Supabase
+redirect URL checklist, see `docs/concierge-pilot.md`.
 
 ## Verification Commands
 

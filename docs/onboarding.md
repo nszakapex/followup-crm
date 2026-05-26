@@ -246,3 +246,8 @@ Use `/setup` before a beta session to confirm:
 - recent review/action outcomes are understandable
 
 See [beta-readiness.md](./beta-readiness.md) for the full checklist.
+
+For one-business concierge pilot validation, use
+[concierge-pilot.md](./concierge-pilot.md). It includes the owner workflow,
+webhook test payload, controlled provider validation path, mobile QA, and
+Supabase redirect URL requirements for password reset/auth callbacks.

@@ -381,3 +381,10 @@ Review request behavior is unchanged:
 - duplicate prevention remains server-side and destination-aware
 - live sends still require an explicit manual action and confirmation
 - automation and scheduled routes still cannot send provider messages
+
+## Phase 13 Controlled Channel Validation
+
+For concierge pilot validation, test exactly one provider/channel at a time.
+Start with test/skip mode, then blocked-provider behavior, then one intentional
+live channel only when the operator controls the destination. See
+[concierge-pilot.md](./concierge-pilot.md) for the full manual checklist.

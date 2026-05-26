@@ -149,3 +149,6 @@ Before a real local service business uses the CRM:
 7. Confirm no send-all, bulk send, retry send, cron send, or automatic provider
    send exists.
 8. Run `npm run test`, `npm run lint`, and `npm run build`.
+
+Use [concierge-pilot.md](./concierge-pilot.md) for the full Phase 13 pilot
+workflow, webhook validation, provider validation, and mobile QA checklist.

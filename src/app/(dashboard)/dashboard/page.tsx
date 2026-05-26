@@ -497,7 +497,7 @@ export default async function DashboardPage() {
         title={`Good ${new Date().getHours() < 12 ? "morning" : "afternoon"}, ${
           profile.name?.split(" ")[0] ?? "there"
         }`}
-        description={`A calm read on ${business?.name ?? "your business"}: leads, follow-up, reviews, and automation health in one place.`}
+        description={`A calm read on ${business?.name ?? "your business"}: missed-call leads, follow-up, reviews, and manual action safety in one place.`}
         actions={
           <>
             {hasDemoData && (
@@ -567,6 +567,25 @@ export default async function DashboardPage() {
             Open diagnostics
             <ArrowRight className="h-4 w-4" />
           </Link>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/70 bg-muted/20">
+        <CardContent className="grid gap-4 p-5 md:grid-cols-4">
+          {[
+            ["1", "Capture lead", "Website form or missed-call tool posts to the private pilot webhook."],
+            ["2", "Review details", "Owner opens the lead, checks contact info, and updates status."],
+            ["3", "Approve manually", "Any follow-up or review request is reviewed one action at a time."],
+            ["4", "Track outcome", "History and review status show sent, blocked, skipped, or duplicate-prevented."],
+          ].map(([step, title, description]) => (
+            <div key={step} className="rounded-lg border border-border/60 bg-background p-3">
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                Step {step}
+              </p>
+              <p className="mt-2 text-sm font-medium text-foreground">{title}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+            </div>
+          ))}
         </CardContent>
       </Card>
 

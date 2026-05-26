@@ -1070,3 +1070,6 @@ For the concierge pilot:
 - review pending actions one at a time
 - do not add send-all, bulk approve, automatic sends, or cron provider delivery
 - run `npm run test`, `npm run lint`, and `npm run build` after safety changes
+
+Phase 13 validates the concierge pilot workflow without changing automation
+send boundaries. See [concierge-pilot.md](./concierge-pilot.md).
