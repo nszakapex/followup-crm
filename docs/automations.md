@@ -1073,3 +1073,18 @@ For the concierge pilot:
 
 Phase 13 validates the concierge pilot workflow without changing automation
 send boundaries. See [concierge-pilot.md](./concierge-pilot.md).
+
+## Phase 14 One-Channel Provider Field Test
+
+Phase 14 validates one manual provider channel only: Resend email. Automation
+behavior is unchanged.
+
+- `/api/automations/run` still rejects `allowProviderSends:true`
+- `/api/automations/scheduled-run` still rejects `allowProviderSends:true`
+- confirmed automation runs still create pending actions only
+- manual action approval remains one card at a time
+- no automation route can perform the Resend field test
+
+Run the provider field test from the direct manual review request flow described
+in [concierge-pilot.md](./concierge-pilot.md). Use automation routes only to
+create or inspect pending actions, never to validate live provider delivery.

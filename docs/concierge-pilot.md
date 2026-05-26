@@ -83,6 +83,11 @@ Invalid payload checks:
 
 Validate exactly one provider/channel at a time.
 
+Phase 14 selects **Resend email** as the first channel to validate because the
+app already has a server-only email helper, email avoids SMS carrier/STOP
+handling during the first field test, and the review request lifecycle is shared
+with the SMS path.
+
 Start in test/skip mode:
 
 ```text
@@ -107,17 +112,58 @@ Blocked provider check:
 
 One live channel check:
 
-1. Configure exactly one provider/channel in server env.
+1. Configure exactly one provider/channel in server env. For Phase 14 email,
+   set `RESEND_API_KEY` and `RESEND_FROM_EMAIL`; leave SMS provider variables
+   unused for this test.
 2. Set both safety flags to false intentionally.
 3. Restart the app.
 4. Open `/setup` and confirm live mode is visible.
-5. Use one real test destination owned by the operator.
-6. Submit one manual review request after confirmation.
-7. Confirm `review_requests` records `sent` or `failed` with safe metadata.
-8. Repeat the same request and confirm duplicate prevention.
-9. Return test/skip mode after validation if the pilot is not ready for live sends.
+5. Use one real email destination owned by the operator.
+6. Create or open one test lead with that email address and a configured Google
+   review link.
+7. Submit one direct manual review request after the live confirmation.
+8. Confirm `review_requests` records `sent` or `failed` with safe metadata:
+   `status`, `send_status`, `provider`, `provider_message_id` when available,
+   timestamps, and safe failure text if delivery fails.
+9. Repeat the same request and confirm duplicate prevention prevents a second
+   provider call.
+10. Return test/skip mode after validation if the pilot is not ready for live sends.
 
 Never validate live sending from automation run or scheduled-run routes.
+
+Rollback/disable steps after the test:
+
+```text
+REVIEW_REQUEST_TEST_MODE=true
+REVIEW_REQUEST_SKIP_DELIVERY=true
+```
+
+Restart the app after changing these values. The setup/settings readiness copy
+should return to test or skip mode, and no live provider message should be sent.
+
+## Minimal Smoke Checks
+
+After `npm run build`, run:
+
+```powershell
+npm run test:smoke
+```
+
+This starts the built app on a local test port and checks:
+
+- `/login`
+- `/signup`
+- `/forgot-password`
+- `/update-password`
+- unauthenticated `/dashboard`
+- unauthenticated `/setup`
+- unauthenticated `/leads`
+- unauthenticated `/billing`
+
+These route checks do not require Supabase test data, do not use provider
+credentials, and do not call SMS or email providers. Full authenticated browser
+coverage remains a later task once a stable test account and browser automation
+fixture are available.
 
 ## Supabase Redirect URLs
 

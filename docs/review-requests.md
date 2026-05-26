@@ -388,3 +388,32 @@ For concierge pilot validation, test exactly one provider/channel at a time.
 Start with test/skip mode, then blocked-provider behavior, then one intentional
 live channel only when the operator controls the destination. See
 [concierge-pilot.md](./concierge-pilot.md) for the full manual checklist.
+
+## Phase 14 One-Channel Field Test
+
+Phase 14 uses the existing server-only provider adapter and selects Resend email
+as the first live validation channel. No second provider is added.
+
+Required server env for the email field test:
+
+```text
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=
+REVIEW_REQUEST_TEST_MODE=false
+REVIEW_REQUEST_SKIP_DELIVERY=false
+```
+
+Only use an operator-owned test email destination. The live path is:
+
+1. Open one lead with a valid email destination.
+2. Confirm the business has a Google review link.
+3. Confirm setup/settings show email live readiness.
+4. Submit one direct manual review request after confirmation.
+5. Verify `review_requests` and the lead timeline show `sent` or a safe
+   `failed` outcome.
+6. Submit the same request again and verify `duplicate_prevented`.
+
+Missing email provider configuration must block before any provider call.
+Test/skip mode must record `not_attempted` or skipped behavior without calling
+Resend. Automation run and scheduled-run routes still reject provider-send
+requests and cannot perform this field test.

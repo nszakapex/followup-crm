@@ -95,6 +95,11 @@ RESEND_API_KEY=
 RESEND_FROM_EMAIL=
 ```
 
+For the first controlled live provider validation, use exactly one channel.
+The recommended Phase 14 channel is Resend email because it has the smallest
+pilot surface in this codebase. Keep SMS disabled until email has been tested
+and duplicate prevention has been verified.
+
 Do not prefix server secrets with `NEXT_PUBLIC_`.
 
 ## Supabase Setup
@@ -170,8 +175,13 @@ Run before committing:
 npm run test
 npm run lint
 npm run build
+npm run test:smoke
 git diff --check
 ```
+
+`npm run test:smoke` starts the built app on a local test port and checks that
+auth pages load and protected owner pages redirect to sign in. Run it after
+`npm run build`.
 
 ## Automation API Safety Smoke Tests
 
