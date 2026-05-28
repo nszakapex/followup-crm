@@ -82,6 +82,7 @@ type BusinessRow = {
   industry: string | null;
   google_review_link: string | null;
   twilio_from_number: string | null;
+  sms_compliance_status: string | null;
   resend_from_email: string | null;
 };
 type ReviewInsertStatus = "pending" | "blocked" | "failed" | "duplicate_prevented";
@@ -567,7 +568,9 @@ export async function sendReviewRequest(
   const supabase = createServiceClient(supabaseUrl, serviceRoleKey);
   const { data: business, error: businessError } = await supabase
     .from("businesses")
-    .select("id, name, industry, google_review_link, twilio_from_number, resend_from_email")
+    .select(
+      "id, name, industry, google_review_link, twilio_from_number, sms_compliance_status, resend_from_email"
+    )
     .eq("id", businessId)
     .maybeSingle();
 
@@ -1002,6 +1005,7 @@ export async function sendReviewRequest(
     businessName: businessRow.name,
     optedOut,
     twilioFromNumber: businessRow.twilio_from_number,
+    smsComplianceStatus: businessRow.sms_compliance_status,
     resendFromEmail: businessRow.resend_from_email,
   });
   const deliverySkipped = Boolean(deliveryResult.skipped);

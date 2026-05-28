@@ -251,3 +251,21 @@ For one-business concierge pilot validation, use
 [concierge-pilot.md](./concierge-pilot.md). It includes the owner workflow,
 webhook test payload, controlled provider validation path, mobile QA, and
 Supabase redirect URL requirements for password reset/auth callbacks.
+
+## Phase 16 SMS Compliance Setup
+
+Live SMS remains blocked until Twilio A2P approval is confirmed. Before enabling
+manual SMS testing:
+
+- configure Twilio env vars server-side
+- set the business `twilio_from_number`
+- configure Twilio inbound webhook at `/api/webhooks/twilio/sms`
+- test HELP and STOP from an operator-owned phone
+- confirm STOP marks the matched lead opted out
+- set `SMS_COMPLIANCE_APPROVED=true` only after A2P approval
+
+The setup and settings pages show SMS provider/compliance readiness without
+showing provider secrets. Automatic SMS sends, cron SMS sends, bulk sends, and
+send-all behavior remain unavailable.
+
+See [sms-compliance.md](./sms-compliance.md).

@@ -32,6 +32,7 @@ type BusinessProviderSettings = {
   id: string | null;
   google_review_link: string | null;
   twilio_from_number: string | null;
+  sms_compliance_status?: string | null;
   resend_from_email: string | null;
 };
 
@@ -139,11 +140,22 @@ export function getReviewProviderReadiness({
 
   const providerReadiness =
     channel === "sms"
-      ? getSmsProviderReadiness(business?.twilio_from_number)
+      ? getSmsProviderReadiness(
+          business?.twilio_from_number,
+          business?.sms_compliance_status
+        )
       : getEmailProviderReadiness(business?.resend_from_email);
 
   if (!providerReadiness.configured) {
     missingFields.push(channel === "sms" ? "SMS provider configuration" : "Email provider configuration");
+  }
+
+  if (
+    channel === "sms" &&
+    "complianceApproved" in providerReadiness &&
+    !providerReadiness.complianceApproved
+  ) {
+    missingFields.push("SMS A2P compliance approval");
   }
 
   if (missingFields.length > 0) {
@@ -160,7 +172,7 @@ export function getReviewProviderReadiness({
       requiresManualConfirmation: true,
       userFacingExplanation:
         channel === "sms"
-          ? "Blocked — SMS provider or review setup is incomplete. No message will be sent."
+          ? "Blocked - SMS provider, A2P compliance, or review setup is incomplete. No message will be sent."
           : "Blocked — email provider or review setup is incomplete. No message will be sent.",
     };
   }

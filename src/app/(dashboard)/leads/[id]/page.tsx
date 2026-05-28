@@ -211,6 +211,9 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
   const latestReviewLifecycle = reviewRequests[0]
     ? getReviewRequestLifecycle(reviewRequests[0])
     : null;
+  const latestInboundSms = messages.find(
+    (message) => message.direction === "inbound" && message.channel === "sms"
+  );
   const pendingPreflightEntries = await Promise.all(
     pendingAutomationActions
       .filter(isPotentiallySendable)
@@ -245,6 +248,27 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
           <CardContent className="flex gap-3 py-4 text-sm text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <p>{formatError(result.errors[0])}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {latestInboundSms && (
+        <Card className="border-amber-500/25 bg-amber-500/5">
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div className="flex min-w-0 gap-3">
+              <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                  Customer replied by SMS
+                </p>
+                <p className="mt-1 line-clamp-2 text-sm leading-6 text-amber-700 dark:text-amber-300">
+                  {latestInboundSms.body}
+                </p>
+              </div>
+            </div>
+            <Badge variant="outline" className="border-amber-500/25 bg-background/80">
+              {lead.status === "needs_reply" ? "Needs response" : "Inbound reply"}
+            </Badge>
           </CardContent>
         </Card>
       )}
@@ -740,7 +764,10 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                   </p>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {getMessageStatusLabel(message)}
-                    {message.provider_message_id ? " · Provider ID recorded" : ""}
+                    {message.direction === "inbound" && message.channel === "sms"
+                      ? ` - From ${lead.phone ?? "customer"}`
+                      : ""}
+                    {message.provider_message_id ? " - Provider ID recorded" : ""}
                   </p>
                   {message.error_message && (
                     <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300">

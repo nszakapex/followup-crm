@@ -35,6 +35,11 @@ function hasValue(value: string | undefined) {
   return Boolean(value?.trim());
 }
 
+function isApprovedA2PStatus(value: string | undefined) {
+  const normalized = value?.trim().toLowerCase().replaceAll("-", "_") ?? "";
+  return ["approved", "active", "verified", "complete", "completed"].includes(normalized);
+}
+
 function getDeliveryMode(env: EnvLike, nodeEnv: string): DeliverySafetyMode {
   if (isTruthy(env.REVIEW_REQUEST_SKIP_DELIVERY)) return "skip";
   if (isTruthy(env.REVIEW_REQUEST_TEST_MODE)) return "test";
@@ -88,10 +93,15 @@ export function validateEnvironment(
         hasValue(env.TWILIO_FROM_NUMBER) ||
         hasValue(env.TWILIO_PHONE_NUMBER))
   );
+  const smsComplianceApproved = Boolean(
+    isTruthy(env.SMS_COMPLIANCE_APPROVED) ||
+      isApprovedA2PStatus(env.TWILIO_A2P_CAMPAIGN_STATUS)
+  );
+  const smsLiveReady = smsProviderConfigured && smsComplianceApproved;
   const emailProviderConfigured = Boolean(
     hasValue(env.RESEND_API_KEY) && hasValue(env.RESEND_FROM_EMAIL)
   );
-  const liveProviderConfigured = smsProviderConfigured || emailProviderConfigured;
+  const liveProviderConfigured = smsLiveReady || emailProviderConfigured;
 
   const checks: EnvValidationCheck[] = [
     buildCheck({
@@ -157,13 +167,21 @@ export function validateEnvironment(
     {
       id: "sms_provider",
       label: "SMS provider",
-      configured: smsProviderConfigured,
+      configured: smsLiveReady,
       requiredInProduction: false,
-      status: smsProviderConfigured ? "pass" : "warning",
-      explanation: smsProviderConfigured
-        ? "SMS provider settings are present server-side."
-        : "SMS live delivery is not configured. This is acceptable for test/skip mode or email-only pilots.",
-      nextAction: smsProviderConfigured ? undefined : "Configure Twilio only when ready for SMS validation.",
+      status: smsLiveReady ? "pass" : "warning",
+      explanation:
+        smsLiveReady
+          ? "SMS provider settings and compliance approval are present server-side."
+          : smsProviderConfigured
+            ? "Twilio settings are present, but SMS live delivery remains blocked until A2P compliance is approved."
+            : "SMS live delivery is not configured. This is acceptable for test/skip mode or email-only pilots.",
+      nextAction:
+        smsProviderConfigured && !smsComplianceApproved
+          ? "Set SMS_COMPLIANCE_APPROVED=true only after Twilio A2P approval."
+          : smsProviderConfigured
+            ? undefined
+            : "Configure Twilio only when ready for SMS validation.",
     },
     {
       id: "email_provider",

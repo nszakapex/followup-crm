@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test tests/env-validation.test.ts tests/webhook-payload.test.ts tests/automation-route-safety.test.ts",
+    "test": "node --import tsx --test tests/env-validation.test.ts tests/webhook-payload.test.ts tests/automation-route-safety.test.ts tests/sms-compliance.test.ts",
     "test:smoke": "node scripts/smoke-routes.mjs",
     "seed:demo": "node scripts/seed-demo.mjs",
     "reset:demo": "node scripts/reset-demo.mjs",

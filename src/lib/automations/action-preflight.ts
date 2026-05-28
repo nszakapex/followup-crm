@@ -32,6 +32,7 @@ type BusinessRow = {
   name: string;
   google_review_link: string | null;
   twilio_from_number: string | null;
+  sms_compliance_status: string | null;
   resend_from_email: string | null;
 };
 
@@ -189,7 +190,9 @@ export async function getAutomationActionSendPreflight(
   ] = await Promise.all([
     supabase
       .from("businesses")
-      .select("id, name, google_review_link, twilio_from_number, resend_from_email")
+      .select(
+        "id, name, google_review_link, twilio_from_number, sms_compliance_status, resend_from_email"
+      )
       .eq("id", businessId)
       .maybeSingle(),
     supabase

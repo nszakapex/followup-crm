@@ -93,7 +93,11 @@ export type ContactDetailResult = {
   lead: Lead | null;
   business: Pick<
     Business,
-    "id" | "google_review_link" | "twilio_from_number" | "resend_from_email"
+    | "id"
+    | "google_review_link"
+    | "twilio_from_number"
+    | "sms_compliance_status"
+    | "resend_from_email"
   > | null;
   detail: ContactDetail | null;
   messages: Message[];
@@ -453,11 +457,14 @@ function getNextBestAction({
     };
   }
 
-  const smsReady = getSmsProviderReadiness(business.twilio_from_number);
+  const smsReady = getSmsProviderReadiness(
+    business.twilio_from_number,
+    business.sms_compliance_status
+  );
   const emailReady = getEmailProviderReadiness(business.resend_from_email);
   const hasUsableDelivery =
     shouldSkipReviewDelivery() ||
-    (lead.phone && smsReady.configured) ||
+    (lead.phone && smsReady.canAttemptLiveSend) ||
     (lead.email && emailReady.configured);
 
   if (!hasUsableDelivery) {
@@ -509,7 +516,7 @@ export async function getLeadDetail(
     supabase.from("leads").select("*").eq("business_id", businessId).eq("id", leadId).maybeSingle(),
     supabase
       .from("businesses")
-      .select("id, google_review_link, twilio_from_number, resend_from_email")
+      .select("id, google_review_link, twilio_from_number, sms_compliance_status, resend_from_email")
       .eq("id", businessId)
       .maybeSingle(),
     supabase

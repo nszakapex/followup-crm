@@ -55,6 +55,7 @@ type BetaBusiness = Pick<
   | "industry"
   | "google_review_link"
   | "twilio_from_number"
+  | "sms_compliance_status"
   | "resend_from_email"
   | "review_requests_enabled"
   | "lead_followup_enabled"
@@ -193,7 +194,7 @@ export async function getBetaReadiness(
       supabase
         .from("businesses")
         .select(
-          "id, name, industry, google_review_link, twilio_from_number, resend_from_email, review_requests_enabled, lead_followup_enabled"
+          "id, name, industry, google_review_link, twilio_from_number, sms_compliance_status, resend_from_email, review_requests_enabled, lead_followup_enabled"
         )
         .eq("id", businessId)
         .maybeSingle(),

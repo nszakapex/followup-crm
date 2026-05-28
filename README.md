@@ -91,14 +91,17 @@ TWILIO_AUTH_TOKEN=
 TWILIO_MESSAGING_SERVICE_SID=
 TWILIO_FROM_NUMBER=
 TWILIO_PHONE_NUMBER=
+SMS_COMPLIANCE_APPROVED=false
+TWILIO_A2P_CAMPAIGN_STATUS=
+TWILIO_WEBHOOK_VALIDATE_SIGNATURE=false
 RESEND_API_KEY=
 RESEND_FROM_EMAIL=
 ```
 
 For the first controlled live provider validation, use exactly one channel.
-The recommended Phase 14 channel is Resend email because it has the smallest
-pilot surface in this codebase. Keep SMS disabled until email has been tested
-and duplicate prevention has been verified.
+The recommended first channel is Resend email because it has the smallest pilot
+surface in this codebase. Keep live SMS disabled until Twilio A2P approval is
+confirmed and `SMS_COMPLIANCE_APPROVED=true` is intentionally set.
 
 Do not prefix server secrets with `NEXT_PUBLIC_`.
 
@@ -109,6 +112,8 @@ Apply migrations from `supabase/migrations` to the target Supabase project.
 If the Supabase CLI is unavailable, use the Supabase SQL Editor and apply
 migrations in order. Migration `007_phase_7c_review_request_lifecycle.sql` must
 be applied before relying on review request lifecycle persistence in live data.
+Migration `008_phase_16_sms_compliance_inbound.sql` adds read indexes for
+Twilio inbound message idempotency and inbound message visibility.
 
 ## Demo Data
 
@@ -166,6 +171,25 @@ See `docs/lead-webhook.md` for the full webhook contract.
 
 For the full pilot workflow, provider validation steps, mobile QA, and Supabase
 redirect URL checklist, see `docs/concierge-pilot.md`.
+
+## SMS Compliance and Inbound Replies
+
+SMS live sending remains blocked until Twilio A2P approval is confirmed. The
+app now checks Twilio provider configuration, A2P approval, destination validity,
+and local opt-out state before any live SMS provider call can happen.
+
+Inbound Twilio replies can be posted to:
+
+```http
+POST /api/webhooks/twilio/sms
+```
+
+Matched inbound SMS replies are stored in `messages`, shown on `/messages` and
+`/leads/[id]`, and normal replies mark the lead `needs_reply`. STOP-like
+keywords mark the lead `opted_out=true`, which blocks future SMS. HELP is stored
+and returns a safe support response.
+
+See `docs/sms-compliance.md` before configuring Twilio.
 
 ## Verification Commands
 
@@ -287,7 +311,7 @@ Still deferred:
 
 - Stripe billing and entitlements
 - provider delivery callbacks/replies
-- SMS STOP handling at scale
+- delivery-status callbacks and broader SMS compliance QA
 - full phone-provider missed-call integration
 - team invites and advanced RBAC
 - public self-serve onboarding

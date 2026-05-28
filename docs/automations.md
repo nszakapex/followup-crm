@@ -1088,3 +1088,22 @@ behavior is unchanged.
 Run the provider field test from the direct manual review request flow described
 in [concierge-pilot.md](./concierge-pilot.md). Use automation routes only to
 create or inspect pending actions, never to validate live provider delivery.
+
+## Phase 16 SMS Compliance Gate
+
+SMS compliance gating does not change automation behavior. Automation runs and
+scheduled runs still create pending actions only and still reject
+`allowProviderSends:true`.
+
+Manual approval of a single SMS action now also requires:
+
+- Twilio provider configuration
+- explicit A2P approval
+- valid lead phone destination
+- lead not opted out
+- test/skip mode disabled only for intentional live testing
+
+If any SMS compliance check fails, the manual action is blocked with a safe
+reason and no Twilio request is made. STOP replies received through
+`/api/webhooks/twilio/sms` mark the lead opted out, so future manual SMS actions
+for that lead are blocked.

@@ -42,7 +42,12 @@ type SendLead = Pick<
 
 type SendBusiness = Pick<
   Business,
-  "id" | "name" | "google_review_link" | "twilio_from_number" | "resend_from_email"
+  | "id"
+  | "name"
+  | "google_review_link"
+  | "twilio_from_number"
+  | "sms_compliance_status"
+  | "resend_from_email"
 >;
 
 type ProviderReadinessSummary = {
@@ -415,6 +420,7 @@ async function sendFollowUpMessage({
       body,
       optedOut: lead.opted_out,
       twilioFromNumber: business.twilio_from_number,
+      smsComplianceStatus: business.sms_compliance_status,
     });
   }
 
@@ -546,7 +552,9 @@ export async function sendAutomationAction(
 
   const { data: businessData, error: businessError } = await supabase
     .from("businesses")
-    .select("id, name, google_review_link, twilio_from_number, resend_from_email")
+    .select(
+      "id, name, google_review_link, twilio_from_number, sms_compliance_status, resend_from_email"
+    )
     .eq("id", businessId)
     .maybeSingle();
 

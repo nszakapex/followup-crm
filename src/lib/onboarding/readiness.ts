@@ -22,6 +22,7 @@ type BusinessReadinessRow = {
   google_review_link: string | null;
   timezone: string | null;
   twilio_from_number: string | null;
+  sms_compliance_status: string | null;
   resend_from_email: string | null;
   review_requests_enabled: boolean | null;
   lead_followup_enabled: boolean | null;
@@ -148,7 +149,7 @@ export async function getBusinessReadiness(
     supabase
       .from("businesses")
       .select(
-        "id, name, owner_email, owner_phone, website_url, google_review_link, timezone, twilio_from_number, resend_from_email, review_requests_enabled, lead_followup_enabled, webhook_secret"
+        "id, name, owner_email, owner_phone, website_url, google_review_link, timezone, twilio_from_number, sms_compliance_status, resend_from_email, review_requests_enabled, lead_followup_enabled, webhook_secret"
       )
       .eq("id", businessId)
       .maybeSingle(),
@@ -216,12 +217,16 @@ export async function getBusinessReadiness(
     defaultReviewMessageConfigured ? null : "Default review request message",
   ].filter(Boolean) as string[];
 
-  const smsReadiness = getSmsProviderReadiness(business?.twilio_from_number);
+  const smsReadiness = getSmsProviderReadiness(
+    business?.twilio_from_number,
+    business?.sms_compliance_status
+  );
   const smsMissing = [
     smsReadiness.accountConfigured ? null : "Twilio account SID/auth token",
     smsReadiness.usesMessagingService || smsReadiness.senderConfigured
       ? null
       : "Twilio messaging service or from number",
+    smsReadiness.complianceApproved || testModeActive ? null : "SMS A2P compliance approval",
   ].filter(Boolean) as string[];
 
   const emailReadiness = getEmailProviderReadiness(business?.resend_from_email);
@@ -261,7 +266,7 @@ export async function getBusinessReadiness(
   const scored = [
     businessProfileMissing.length === 0,
     reviewMissing.length === 0,
-    smsReadiness.configured || testModeActive,
+    smsReadiness.canAttemptLiveSend || testModeActive,
     emailReadiness.configured || testModeActive,
     dataMissing.length === 0,
     automations.length > 0,
@@ -300,9 +305,9 @@ export async function getBusinessReadiness(
     smsProvider: {
       status: testModeActive
         ? "ready"
-        : providerStatus(smsReadiness.configured, smsMissing),
+        : providerStatus(smsReadiness.canAttemptLiveSend, smsMissing),
       missing: smsMissing,
-      canSend: smsReadiness.configured || testModeActive,
+      canSend: smsReadiness.canAttemptLiveSend || testModeActive,
       blockedReason: testModeActive ? "Delivery is skipped in test mode." : smsReadiness.reason,
       testModeActive,
     },

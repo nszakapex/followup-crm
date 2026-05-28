@@ -83,10 +83,9 @@ Invalid payload checks:
 
 Validate exactly one provider/channel at a time.
 
-Phase 14 selects **Resend email** as the first channel to validate because the
-app already has a server-only email helper, email avoids SMS carrier/STOP
-handling during the first field test, and the review request lifecycle is shared
-with the SMS path.
+Phase 14 selected **Resend email** as the first channel to validate because the
+app already had a server-only email helper, and SMS carrier/STOP handling was
+intentionally deferred until the Phase 16 compliance gate.
 
 Start in test/skip mode:
 
@@ -130,6 +129,25 @@ One live channel check:
 10. Return test/skip mode after validation if the pilot is not ready for live sends.
 
 Never validate live sending from automation run or scheduled-run routes.
+
+### SMS After A2P Approval
+
+SMS remains blocked for live sending until Twilio A2P 10DLC approval is
+confirmed and `SMS_COMPLIANCE_APPROVED=true` is intentionally set. Before any
+manual SMS field test:
+
+1. Apply `supabase/migrations/008_phase_16_sms_compliance_inbound.sql`.
+2. Set `businesses.twilio_from_number` to the Twilio number that receives
+   replies.
+3. Configure Twilio inbound SMS webhook:
+   `https://YOUR_DOMAIN/api/webhooks/twilio/sms`.
+4. Send `HELP` from an operator-owned phone and confirm the reply is stored on
+   `/messages` and `/leads/[id]`.
+5. Send `STOP` from the same phone and confirm the lead becomes opted out.
+6. Confirm an opted-out lead cannot receive manual SMS.
+
+Do not test instant SMS automation in this phase. No automation route can send
+SMS.
 
 Rollback/disable steps after the test:
 
@@ -245,7 +263,7 @@ Still deferred after concierge pilot validation:
 - Stripe billing and entitlement enforcement
 - full phone-provider missed-call integration
 - provider delivery callbacks/replies
-- SMS STOP/reply compliance at scale
+- broader SMS delivery callback/compliance QA
 - broader browser/Playwright automation
 - team invites and advanced account management
 - self-serve provider setup wizard

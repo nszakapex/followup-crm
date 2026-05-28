@@ -14,6 +14,7 @@ type ReviewProviderSendInput = {
   businessName: string;
   optedOut: boolean;
   twilioFromNumber?: string | null;
+  smsComplianceStatus?: string | null;
   resendFromEmail?: string | null;
 };
 
@@ -35,6 +36,7 @@ export async function sendReviewProviderMessage(
       body: input.messageBody,
       optedOut: input.optedOut,
       twilioFromNumber: input.twilioFromNumber,
+      smsComplianceStatus: input.smsComplianceStatus,
     });
   }
 

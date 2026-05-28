@@ -95,7 +95,10 @@ export default async function SettingsPage() {
   const activeAutomations = automations.filter((automation) => automation.enabled).length;
   const settingsStatusError =
     leadsError?.message ?? reviewRequestsError?.message ?? automationsError?.message ?? null;
-  const smsReadiness = getSmsProviderReadiness(biz.twilio_from_number);
+  const smsReadiness = getSmsProviderReadiness(
+    biz.twilio_from_number,
+    biz.sms_compliance_status
+  );
   const emailReadiness = getEmailProviderReadiness(biz.resend_from_email);
   const smsManualReadiness = getReviewProviderReadiness({
     business: biz,
@@ -285,7 +288,11 @@ export default async function SettingsPage() {
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">SMS delivery</span>
                 <Badge variant={smsReadiness.configured ? "secondary" : "outline"}>
-                  {smsReadiness.configured ? "Configured" : "Missing provider config"}
+                  {smsReadiness.canAttemptLiveSend
+                    ? "Ready for manual SMS test"
+                    : smsReadiness.configured
+                      ? "A2P approval required"
+                      : "Missing provider config"}
                 </Badge>
               </div>
               <div className="flex items-center justify-between gap-3">
@@ -318,7 +325,9 @@ export default async function SettingsPage() {
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">SMS compliance</span>
                 <Badge variant="outline">
-                  {biz.sms_compliance_status ?? "not_configured"}
+                  {smsReadiness.complianceApproved
+                    ? "Approved"
+                    : biz.sms_compliance_status ?? "not_configured"}
                 </Badge>
               </div>
             </CardContent>

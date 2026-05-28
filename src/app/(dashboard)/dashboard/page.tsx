@@ -192,7 +192,7 @@ export default async function DashboardPage() {
     supabase
       .from("businesses")
       .select(
-        "id, name, google_review_link, review_requests_enabled, lead_followup_enabled, twilio_from_number, resend_from_email, webhook_secret"
+        "id, name, google_review_link, review_requests_enabled, lead_followup_enabled, twilio_from_number, sms_compliance_status, resend_from_email, webhook_secret"
       )
       .eq("id", businessId)
       .single(),
@@ -271,11 +271,14 @@ export default async function DashboardPage() {
   const leadCaptureReady = Boolean(business?.webhook_secret);
   const reviewRequestsEnabled = Boolean(business?.review_requests_enabled);
   const leadFollowupEnabled = Boolean(business?.lead_followup_enabled);
-  const smsReadiness = getSmsProviderReadiness(business?.twilio_from_number);
+  const smsReadiness = getSmsProviderReadiness(
+    business?.twilio_from_number,
+    business?.sms_compliance_status
+  );
   const emailReadiness = getEmailProviderReadiness(business?.resend_from_email);
   const deliverySkipped = shouldSkipReviewDelivery();
   const providerLabels = [
-    smsReadiness.configured ? "SMS" : null,
+    smsReadiness.canAttemptLiveSend ? "SMS" : null,
     emailReadiness.configured ? "Email" : null,
   ].filter(Boolean);
   const hasDemoData = leads.some(

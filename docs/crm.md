@@ -98,6 +98,8 @@ The next best action is deterministic:
 - Provider readiness blocked: complete setup
 - Completed lead with no review request: send a review request
 - New or needs-reply lead: review lead details
+- Inbound SMS reply exists: respond manually outside the app for now
+- Opted-out lead: SMS is blocked
 - Otherwise: no immediate action
 
 No AI is used and no action is created automatically.
@@ -125,6 +127,8 @@ No AI is used and no action is created automatically.
 8. Confirm a sent, reviewed, dismissed, failed, or blocked action cannot be sent again.
 9. Open `/customers/[leadId]` and confirm it redirects to `/leads/[leadId]`.
 10. Confirm `/automations`, `/setup`, `/reviews`, and `/messages` still load.
+11. Send a matched inbound SMS test after Twilio webhook setup and confirm it appears on `/messages` and `/leads/[id]`.
+12. Send STOP and confirm the lead shows opted out and future SMS is blocked.
 
 ## Demo pending-action fixture
 
@@ -152,3 +156,15 @@ Before a real local service business uses the CRM:
 
 Use [concierge-pilot.md](./concierge-pilot.md) for the full Phase 13 pilot
 workflow, webhook validation, provider validation, and mobile QA checklist.
+
+## Phase 16 SMS Replies
+
+Inbound SMS replies from Twilio are stored as `messages` when the inbound number
+matches a business `twilio_from_number` and the sender phone matches a lead in
+that business. Normal replies mark the lead `needs_reply`; STOP-style replies
+mark `opted_out=true`; HELP replies are stored and surfaced for operator
+attention.
+
+This is not a chat composer and does not add automatic replies beyond safe
+Twilio webhook STOP/HELP responses. Business owners see replies in `/messages`
+and on the lead detail page.

@@ -3,6 +3,10 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
 import { getSmsProviderReadiness, shouldSkipReviewDelivery } from "@/lib/messaging/provider-config";
+import {
+  formatSmsDestinationForProvider,
+  isValidSmsDestination,
+} from "@/lib/messaging/sms-compliance-core";
 import type { DeliveryResult } from "@/lib/messaging/types";
 
 interface SendSmsParams {
@@ -12,6 +16,7 @@ interface SendSmsParams {
   body: string;
   optedOut: boolean;
   twilioFromNumber?: string | null;
+  smsComplianceStatus?: string | null;
 }
 
 type MessageStatus = "pending" | "sent" | "delivered" | "failed" | "received";
@@ -88,7 +93,8 @@ function messageLogFailure(provider: DeliveryResult["provider"], message: string
  * network call, so local/demo smoke tests cannot accidentally send real SMS.
  */
 export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
-  const { businessId, leadId, to, body, optedOut, twilioFromNumber } = params;
+  const { businessId, leadId, to, body, optedOut, twilioFromNumber, smsComplianceStatus } =
+    params;
 
   if (!to) {
     const userMessage = "Customer phone number is required for SMS review requests.";
@@ -160,6 +166,30 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
     };
   }
 
+  if (!isValidSmsDestination(to)) {
+    const userMessage = "Customer phone number must be a valid SMS destination.";
+    const messageError = await logSmsMessage({
+      businessId,
+      leadId,
+      body,
+      status: "failed",
+      provider: "blocked",
+      errorMessage: userMessage,
+    });
+
+    if (messageError) return messageLogFailure("blocked", messageError.message);
+
+    return {
+      success: false,
+      provider: "blocked",
+      providerMessageId: null,
+      providerStatus: "blocked",
+      skipped: true,
+      error: userMessage,
+      userMessage,
+    };
+  }
+
   if (shouldSkipReviewDelivery()) {
     const userMessage = "Review request created. Delivery skipped in test mode.";
     const messageError = await logSmsMessage({
@@ -182,7 +212,7 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
     };
   }
 
-  const readiness = getSmsProviderReadiness(twilioFromNumber);
+  const readiness = getSmsProviderReadiness(twilioFromNumber, smsComplianceStatus);
 
   if (!readiness.configured) {
     const userMessage = "SMS provider is not configured.";
@@ -207,13 +237,37 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
     };
   }
 
+  if (!readiness.complianceApproved) {
+    const userMessage = "SMS A2P compliance is not approved yet. No SMS was sent.";
+    const messageError = await logSmsMessage({
+      businessId,
+      leadId,
+      body,
+      status: "failed",
+      provider: "blocked",
+      errorMessage: userMessage,
+    });
+
+    if (messageError) return messageLogFailure("blocked", messageError.message);
+
+    return {
+      success: false,
+      provider: "blocked",
+      providerMessageId: null,
+      providerStatus: "blocked",
+      skipped: true,
+      error: userMessage,
+      userMessage,
+    };
+  }
+
   try {
     const accountSid = process.env.TWILIO_ACCOUNT_SID!;
     const authToken = process.env.TWILIO_AUTH_TOKEN!;
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
     const formBody = new URLSearchParams();
 
-    formBody.append("To", to);
+    formBody.append("To", formatSmsDestinationForProvider(to));
     formBody.append("Body", body);
 
     if (process.env.TWILIO_MESSAGING_SERVICE_SID) {

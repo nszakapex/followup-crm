@@ -1,5 +1,11 @@
 import "server-only";
 
+import {
+  getSmsComplianceApproval,
+  getSmsReadinessState,
+  type SmsReadinessState,
+} from "@/lib/messaging/sms-compliance-core";
+
 export type SmsProviderReadiness = {
   configured: boolean;
   accountConfigured: boolean;
@@ -7,6 +13,12 @@ export type SmsProviderReadiness = {
   senderConfigured: boolean;
   senderSource: "business" | "env" | null;
   sender: string | null;
+  complianceApproved: boolean;
+  complianceSource: "env" | "a2p_status" | "business_status" | null;
+  businessComplianceStatus: string | null;
+  a2pCampaignStatus: string | null;
+  state: SmsReadinessState;
+  canAttemptLiveSend: boolean;
   reason: string | null;
 };
 
@@ -45,7 +57,8 @@ export function getDeliveryModeLabel() {
 }
 
 export function getSmsProviderReadiness(
-  businessTwilioFromNumber?: string | null
+  businessTwilioFromNumber?: string | null,
+  businessSmsComplianceStatus?: string | null
 ): SmsProviderReadiness {
   const accountConfigured = Boolean(
     process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
@@ -56,10 +69,18 @@ export function getSmsProviderReadiness(
   const senderSource = businessTwilioFromNumber ? "business" : envSender ? "env" : null;
   const senderConfigured = Boolean(sender);
   const configured = accountConfigured && (usesMessagingService || senderConfigured);
+  const compliance = getSmsComplianceApproval(process.env, businessSmsComplianceStatus);
+  const state = getSmsReadinessState({
+    deliverySkipped: shouldSkipReviewDelivery(),
+    providerConfigured: configured,
+    complianceApproved: compliance.approved,
+  });
   const reason = !accountConfigured
     ? "Missing Twilio account SID or auth token."
     : !usesMessagingService && !senderConfigured
       ? "Missing Twilio messaging service SID or from number."
+      : !compliance.approved
+        ? "SMS A2P compliance is not approved yet."
       : null;
 
   return {
@@ -69,6 +90,12 @@ export function getSmsProviderReadiness(
     senderConfigured,
     senderSource,
     sender,
+    complianceApproved: compliance.approved,
+    complianceSource: compliance.source,
+    businessComplianceStatus: compliance.businessStatus,
+    a2pCampaignStatus: compliance.campaignStatus,
+    state,
+    canAttemptLiveSend: configured && compliance.approved && !shouldSkipReviewDelivery(),
     reason,
   };
 }

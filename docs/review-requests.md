@@ -29,6 +29,7 @@ Blocked means no SMS or email provider call was made. Common blocked reasons:
 
 - Google review link is missing.
 - SMS provider is not configured.
+- SMS A2P compliance is not approved.
 - Email provider is not configured.
 - Customer phone or email is missing for the requested channel.
 - The customer opted out of SMS review requests.
@@ -417,3 +418,21 @@ Missing email provider configuration must block before any provider call.
 Test/skip mode must record `not_attempted` or skipped behavior without calling
 Resend. Automation run and scheduled-run routes still reject provider-send
 requests and cannot perform this field test.
+
+## Phase 16 SMS Compliance Gate
+
+Phase 16 adds a live-SMS compliance gate before Twilio can be called. The SMS
+send path now requires Twilio configuration plus explicit A2P approval through
+`SMS_COMPLIANCE_APPROVED=true`, `TWILIO_A2P_CAMPAIGN_STATUS=approved`, or an
+approved business SMS compliance status.
+
+If approval is missing, SMS review requests are `blocked` with a safe reason and
+no Twilio request is made. If test/skip mode is active, no Twilio request is
+made. If the lead is opted out, no Twilio request is made.
+
+Inbound Twilio replies are accepted at `/api/webhooks/twilio/sms`, stored as
+matched inbound `messages`, and shown on the lead timeline. STOP-style replies
+mark the lead opted out; HELP and normal replies mark the lead as needing
+operator attention where applicable.
+
+See [sms-compliance.md](./sms-compliance.md) for setup and testing.
