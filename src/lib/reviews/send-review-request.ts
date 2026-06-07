@@ -8,6 +8,7 @@ import type { DeliveryResult } from "@/lib/messaging/types";
 import { getWorkflowTemplate } from "@/lib/business-verticals/verticals";
 import { sendReviewProviderMessage } from "@/lib/reviews/provider-send-adapter";
 import { getReviewProviderReadiness } from "@/lib/reviews/provider-readiness";
+import { getSelectedSmsProviderName } from "@/lib/sms";
 
 type ReviewRequestOutcome =
   | "sent"
@@ -16,7 +17,10 @@ type ReviewRequestOutcome =
   | "failed"
   | "duplicate_prevented";
 type ReviewRequestProvider =
+  | "mock"
   | "twilio"
+  | "telnyx"
+  | "plivo"
   | "resend"
   | "test_mode"
   | "blocked"
@@ -218,7 +222,7 @@ function renderReviewBody({
 }
 
 function getProviderForChannel(channel: "sms" | "email"): ReviewRequestProvider {
-  return channel === "sms" ? "twilio" : "resend";
+  return channel === "sms" ? getSelectedSmsProviderName() : "resend";
 }
 
 async function logReviewEvent(
@@ -1004,7 +1008,7 @@ export async function sendReviewRequest(
     messageBody,
     businessName: businessRow.name,
     optedOut,
-    twilioFromNumber: businessRow.twilio_from_number,
+    smsFromNumber: businessRow.twilio_from_number,
     smsComplianceStatus: businessRow.sms_compliance_status,
     resendFromEmail: businessRow.resend_from_email,
   });

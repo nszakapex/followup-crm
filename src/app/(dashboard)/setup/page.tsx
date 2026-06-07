@@ -480,7 +480,7 @@ export default async function SetupPage() {
         <SetupCard
           icon={Phone}
           title="SMS readiness"
-          description="Safe SMS status without showing Twilio credentials."
+          description="Safe SMS status without showing provider credentials."
           status={readiness.smsProvider.status === "ready" ? "ready" : "blocked"}
           missing={readiness.smsProvider.missing}
           actionHref="/settings"

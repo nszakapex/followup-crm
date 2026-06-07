@@ -69,7 +69,7 @@ export async function SafetyModeBanner() {
 
   const { data: business, error: businessError } = await supabase
     .from("businesses")
-    .select("id, google_review_link, twilio_from_number, resend_from_email")
+    .select("id, google_review_link, twilio_from_number, sms_compliance_status, resend_from_email")
     .eq("id", profile.business_id)
     .maybeSingle();
 

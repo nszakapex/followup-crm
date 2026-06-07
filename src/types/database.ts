@@ -127,10 +127,13 @@ export interface Lead {
   last_name: string | null;
   phone: string | null;
   email: string | null;
+  company: string | null;
   source: string | null;
+  service_interest: string | null;
   status: LeadStatus;
   intent: string | null;
   notes: string | null;
+  metadata_json: Record<string, unknown>;
   ai_summary: string | null;
   last_contacted_at: string | null;
   next_followup_at: string | null;

@@ -22,7 +22,7 @@ This phase does not add:
 3. Open `/settings` and complete the business profile.
 4. Add the Google review link.
 5. Confirm delivery mode is test, skip, blocked, or live.
-6. Confirm the private lead capture webhook is configured.
+6. Confirm the protected generic lead capture webhook is configured.
 7. Send one missed-call/form-style test payload to the webhook.
 8. Open `/leads` and confirm the lead appears.
 9. Open `/leads/[id]` and confirm contact details, source, timeline, and next action.
@@ -38,7 +38,7 @@ This phase does not add:
 Endpoint:
 
 ```http
-POST /api/webhooks/leads/[businessId]/[secret]
+POST /api/webhooks/leads
 ```
 
 Local example:
@@ -46,14 +46,16 @@ Local example:
 ```powershell
 Invoke-WebRequest `
   -UseBasicParsing `
-  -Uri "http://localhost:3000/api/webhooks/leads/BUSINESS_ID/WEBHOOK_SECRET" `
+  -Uri "http://localhost:3000/api/webhooks/leads" `
   -Method POST `
+  -Headers @{ "x-webhook-secret" = "YOUR_INBOUND_WEBHOOK_SECRET" } `
   -ContentType "application/json" `
   -Body '{
-    "fullName": "Taylor Pilot",
+    "source": "missed_call_pilot",
+    "external_id": "pilot-test-001",
+    "name": "Taylor Pilot",
     "phone": "5550102002",
     "email": "taylor@example.test",
-    "source": "Missed call - pilot validation",
     "message": "Called about booking a service."
   }'
 ```
@@ -61,10 +63,10 @@ Invoke-WebRequest `
 Expected:
 
 - `201` for a new lead or `200` for an updated matching lead
-- response includes `success:true` and `leadId`
+- response includes `ok:true` and `lead_id`
 - lead appears in `/leads`
 - `/leads/[id]` shows the webhook source/details
-- no SMS, email, review request, or provider send occurs
+- no SMS or review request is sent; Resend may send an owner notification after the lead is saved
 
 Duplicate check:
 
@@ -74,8 +76,7 @@ Duplicate check:
 
 Invalid payload checks:
 
-- invalid business id should return `400`
-- invalid secret should return `401`
+- missing/invalid `x-webhook-secret` should return `401`
 - missing contact destination should return `400`
 - non-JSON or unsupported shape should return `400`
 
@@ -90,6 +91,7 @@ intentionally deferred until the Phase 16 compliance gate.
 Start in test/skip mode:
 
 ```text
+SMS_PROVIDER=mock
 REVIEW_REQUEST_TEST_MODE=true
 REVIEW_REQUEST_SKIP_DELIVERY=true
 ```
@@ -130,21 +132,24 @@ One live channel check:
 
 Never validate live sending from automation run or scheduled-run routes.
 
-### SMS After A2P Approval
+### SMS Provider and Compliance Testing
 
-SMS remains blocked for live sending until Twilio A2P 10DLC approval is
-confirmed and `SMS_COMPLIANCE_APPROVED=true` is intentionally set. Before any
-manual SMS field test:
+SMS defaults to `SMS_PROVIDER=mock` for local/test mode. Twilio is optional
+legacy support only. Live SMS remains blocked until a real provider is selected,
+configured server-side, and `SMS_COMPLIANCE_APPROVED=true` is intentionally set
+after compliance approval. Before any manual SMS field test:
 
 1. Apply `supabase/migrations/008_phase_16_sms_compliance_inbound.sql`.
-2. Set `businesses.twilio_from_number` to the Twilio number that receives
-   replies.
-3. Configure Twilio inbound SMS webhook:
+2. Keep `SMS_PROVIDER=mock` and verify a manual SMS action records a mock/test
+   outcome without calling a provider.
+3. Only for legacy Twilio inbound testing, set `businesses.twilio_from_number`
+   to the Twilio number that receives replies.
+4. Configure the legacy Twilio inbound SMS webhook:
    `https://YOUR_DOMAIN/api/webhooks/twilio/sms`.
-4. Send `HELP` from an operator-owned phone and confirm the reply is stored on
+5. Send `HELP` from an operator-owned phone and confirm the reply is stored on
    `/messages` and `/leads/[id]`.
-5. Send `STOP` from the same phone and confirm the lead becomes opted out.
-6. Confirm an opted-out lead cannot receive manual SMS.
+6. Send `STOP` from the same phone and confirm the lead becomes opted out.
+7. Confirm an opted-out lead cannot receive manual SMS.
 
 Do not test instant SMS automation in this phase. No automation route can send
 SMS.

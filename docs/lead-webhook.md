@@ -1,88 +1,82 @@
 # Lead Capture Webhook
 
-Use the lead capture webhook to send website form submissions, missed-call tool
-events, or automation-tool events into FollowUp CRM.
+Use the generic lead webhook to send website forms, Meta Lead Ads through
+Zapier/Make, missed-call tools, or other simple lead sources into FollowUp CRM.
 
-This is the initial pilot missed-call ingestion path. It is intentionally a
-private webhook, not a full phone-provider integration. The route creates or
-updates leads only; it does not send SMS, email, review requests, follow-ups, or
-provider messages.
+The endpoint creates or updates leads. It does not send SMS or review requests.
+It can send an owner notification email through Resend after the lead is saved.
 
 ## Endpoint
 
 ```http
-POST /api/webhooks/leads/[businessId]/[secret]
+POST /api/webhooks/leads
 ```
 
-Keep the full URL private. The final path segment is the business lead capture secret.
+Required header:
+
+```http
+x-webhook-secret: YOUR_INBOUND_WEBHOOK_SECRET
+```
+
+Set `INBOUND_WEBHOOK_SECRET` server-side. For production, also set
+`INBOUND_WEBHOOK_BUSINESS_ID` to the Supabase business id that should receive
+webhook leads.
 
 ## Example Payload
 
 ```json
 {
-  "fullName": "Sarah Miller",
-  "phone": "5550101001",
+  "source": "meta_lead_ads",
+  "external_id": "1234567890",
+  "name": "Sarah Miller",
   "email": "sarah@example.com",
-  "source": "Website form",
+  "phone": "5550101001",
+  "company": "Miller Homes",
   "message": "Interested in booking an appointment.",
+  "service_interest": "Initial consultation",
   "metadata": {
-    "page": "/contact",
-    "campaign": "google-ads",
-    "formId": "homepage-contact"
+    "form_id": "homepage-contact",
+    "campaign_name": "spring-campaign",
+    "ad_name": "local-lead-ad",
+    "preferred_time": "Friday afternoon"
   }
 }
 ```
 
-## Required Fields
-
-At least one contact method is required:
-
-- `phone`
-- `email`
+At least one of `phone` or `email` is required.
 
 ## Supported Field Names
 
 Names:
 
-- `firstName`
-- `first_name`
-- `lastName`
-- `last_name`
-- `fullName`
-- `full_name`
-- `name`
+- `firstName`, `first_name`
+- `lastName`, `last_name`
+- `fullName`, `full_name`, `name`
 
-Contact:
+Contact and business:
 
-- `phone`
-- `phone_number`
-- `phoneNumber`
-- `email`
-- `email_address`
-- `emailAddress`
+- `phone`, `phone_number`, `phoneNumber`
+- `email`, `email_address`, `emailAddress`
+- `company`, `business`, `organization`
 
-Message and source:
+Source and idempotency:
 
-- `message`
-- `notes`
-- `inquiry`
-- `comments`
-- `source`
-- `form_source`
-- `formSource`
-- `referrer`
-- `page`
+- `source`, `form_source`, `formSource`, `referrer`, `page`
+- `external_id`, `externalId`, `submission_id`, `formSubmissionId`
+- `external_crm_name`, `externalCrmName`
+
+Interest and message:
+
+- `service_interest`, `serviceInterest`, `interest`
+- `service_requested`, `requested_service`
+- `message`, `notes`, `inquiry`, `comments`
 
 Metadata:
 
-- `metadata`
-- `meta`
-- `campaign`
-- `formId`
-- `form_id`
-- `page`
-- `url`
-- `pathname`
+- `metadata` or `meta`
+- custom scalar metadata keys are accepted unless they look secret-like
+- keys containing token, secret, password, cookie, authorization, session, or
+  API key are ignored
 
 ## Responses
 
@@ -90,39 +84,21 @@ Created:
 
 ```json
 {
-  "success": true,
-  "leadId": "lead-uuid",
+  "ok": true,
+  "lead_id": "lead-uuid",
   "created": true,
-  "updated": false
+  "duplicate": false
 }
 ```
 
-Updated:
+Duplicate/update:
 
 ```json
 {
-  "success": true,
-  "leadId": "lead-uuid",
+  "ok": true,
+  "lead_id": "lead-uuid",
   "created": false,
-  "updated": true
-}
-```
-
-Validation error:
-
-```json
-{
-  "success": false,
-  "error": "Lead requires at least a phone number or email."
-}
-```
-
-Invalid shape:
-
-```json
-{
-  "success": false,
-  "error": "Invalid webhook payload. Send a JSON object with a name, phone or email, and optional source/message fields."
+  "duplicate": true
 }
 ```
 
@@ -130,7 +106,7 @@ Invalid secret:
 
 ```json
 {
-  "success": false,
+  "ok": false,
   "error": "Webhook secret is invalid."
 }
 ```
@@ -139,64 +115,83 @@ Invalid secret:
 
 The webhook looks for an existing lead in this order:
 
-1. Same business and matching normalized email.
-2. Same business and matching normalized phone.
-3. Same business and matching external CRM id when provided.
+1. Same business, same `source`, and same `external_id`.
+2. Same business, same `external_crm_name`, and same external id.
+3. Same business and matching normalized email.
+4. Same business and matching normalized phone.
 
-If a match is found, the CRM updates safe fields and preserves progressed lead statuses such as booked, completed, review requested, or lost.
+If a match is found, the CRM updates safe missing fields, merges notes/metadata,
+and preserves progressed terminal statuses such as booked, completed, review
+requested, or lost.
 
-## Security
+## Meta Lead Ads Through Zapier/Make
 
-- Keep the endpoint URL private.
-- Do not put the webhook secret in public docs, screenshots, or client-side source code.
-- The webhook does not send SMS, email, or review requests.
-- The route stores a sanitized payload summary, not the full raw submission.
-- The route validates the business id, checks the private secret, rejects oversized
-  or invalid JSON payloads, and requires at least one contact destination.
-- For public SaaS scale, add provider-specific signatures/rate limiting before
-  broad external use.
+Recommended v1 flow:
 
-## Pilot Missed-Call Test
-
-1. Confirm the business has a webhook secret in Settings.
-2. Send a POST request with a fake/test phone number and source such as
-   `Missed call - pilot test`.
-3. Open `/leads` and confirm one lead was created or updated.
-4. Repeat the same payload and confirm it updates the same lead instead of
-   creating a duplicate.
-5. Confirm no review request, SMS, email, or automation provider send occurred.
-
-See [concierge-pilot.md](./concierge-pilot.md) for the full end-to-end pilot
-workflow and mobile QA checklist.
-
-## Fetch Example
-
-```ts
-await fetch("https://your-app.example.com/api/webhooks/leads/[businessId]/[secret]", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    fullName: "Sarah Miller",
-    phone: "5550101001",
-    email: "sarah@example.com",
-    source: "Website form",
-    message: "Interested in booking an appointment.",
-  }),
-});
+```text
+Meta Lead Ads Form -> Zapier/Make trigger -> Webhook POST
+-> /api/webhooks/leads -> CRM lead -> Resend notification -> dashboard follow-up
 ```
+
+Zapier/Make request:
+
+- Method: `POST`
+- URL: `https://your-domain.com/api/webhooks/leads`
+- Header: `Content-Type: application/json`
+- Header: `x-webhook-secret: YOUR_INBOUND_WEBHOOK_SECRET`
+
+Body:
+
+```json
+{
+  "source": "meta_lead_ads",
+  "external_id": "{{lead_id}}",
+  "name": "{{full_name}}",
+  "email": "{{email}}",
+  "phone": "{{phone_number}}",
+  "message": "{{message}}",
+  "service_interest": "{{service_requested}}",
+  "metadata": {
+    "form_id": "{{form_id}}",
+    "campaign_name": "{{campaign_name}}",
+    "ad_name": "{{ad_name}}",
+    "city_or_zip": "{{city_or_zip}}",
+    "vehicle": "{{vehicle}}",
+    "preferred_time": "{{preferred_time}}"
+  }
+}
+```
+
+Direct Meta API integration can be added later. It is not needed for v1.
 
 ## Curl Example
 
 ```bash
-curl -X POST "https://your-app.example.com/api/webhooks/leads/[businessId]/[secret]" \
+curl -X POST "https://your-app.example.com/api/webhooks/leads" \
   -H "Content-Type: application/json" \
+  -H "x-webhook-secret: YOUR_INBOUND_WEBHOOK_SECRET" \
   -d '{
-    "fullName": "Sarah Miller",
+    "source": "website_form",
+    "external_id": "form-123",
+    "name": "Sarah Miller",
     "phone": "5550101001",
     "email": "sarah@example.com",
-    "source": "Website form",
     "message": "Interested in booking an appointment."
   }'
 ```
+
+## Verification
+
+Against a running app:
+
+```powershell
+npm run test:webhook
+```
+
+Manual checks:
+
+1. Send a request with no `x-webhook-secret`; expect `401`.
+2. Send a valid test lead; expect `created: true`.
+3. Send the same payload again; expect `duplicate: true`.
+4. Confirm one lead appears in `/leads`.
+5. Confirm an owner notification email is sent or a failure is logged.

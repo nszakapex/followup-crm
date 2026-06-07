@@ -150,7 +150,9 @@ function containsSuspiciousSecret(value: unknown): boolean {
       text.includes("auth_token") ||
       text.includes("secret") ||
       text.includes("twilio_auth") ||
-      text.includes("resend_api")
+      text.includes("resend_api") ||
+      text.includes("telnyx_api") ||
+      text.includes("plivo_auth")
     );
   }
 
@@ -177,7 +179,9 @@ function looksLikeRawFailureText(value: string | null) {
     text.includes("api key") ||
     text.includes("auth token") ||
     text.includes("twilio_auth_token") ||
-    text.includes("resend_api_key")
+    text.includes("resend_api_key") ||
+    text.includes("telnyx_api_key") ||
+    text.includes("plivo_auth_token")
   );
 }
 

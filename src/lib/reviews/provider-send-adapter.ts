@@ -13,7 +13,7 @@ type ReviewProviderSendInput = {
   messageBody: string;
   businessName: string;
   optedOut: boolean;
-  twilioFromNumber?: string | null;
+  smsFromNumber?: string | null;
   smsComplianceStatus?: string | null;
   resendFromEmail?: string | null;
 };
@@ -24,6 +24,7 @@ type ReviewProviderSendInput = {
  * This adapter deliberately delegates to the existing SMS/email helpers so
  * readiness, skip/test mode, message logging, and provider normalization stay
  * consistent across manual direct sends and approved automation actions.
+ * The SMS helper uses the provider-neutral SMS adapter selected by SMS_PROVIDER.
  */
 export async function sendReviewProviderMessage(
   input: ReviewProviderSendInput
@@ -35,7 +36,7 @@ export async function sendReviewProviderMessage(
       to: input.phone,
       body: input.messageBody,
       optedOut: input.optedOut,
-      twilioFromNumber: input.twilioFromNumber,
+      smsFromNumber: input.smsFromNumber,
       smsComplianceStatus: input.smsComplianceStatus,
     });
   }

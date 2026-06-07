@@ -13,7 +13,7 @@ const LEAD_SELECT =
 const AUTOMATION_SELECT =
   "id, business_id, name, type, enabled, delay_hours, trigger_status, message_template, channel, last_triggered_at, trigger_count";
 const BUSINESS_SELECT =
-  "id, name, industry, owner_email, google_review_link, twilio_from_number, resend_from_email";
+  "id, name, industry, owner_email, google_review_link, twilio_from_number, sms_compliance_status, resend_from_email";
 
 function isDevelopment() {
   return process.env.NODE_ENV !== "production";
@@ -47,6 +47,11 @@ function isTruthy(value) {
   return ["1", "true", "yes", "on"].includes((value || "").toLowerCase());
 }
 
+function isApprovedSmsStatus(value) {
+  const normalized = (value || "").trim().toLowerCase().replaceAll("-", "_");
+  return ["approved", "active", "verified", "complete", "completed"].includes(normalized);
+}
+
 function isExplicitlyFalse(value) {
   return ["0", "false", "no", "off"].includes((value || "").toLowerCase());
 }
@@ -63,23 +68,46 @@ function shouldSkipDelivery() {
 }
 
 function getSmsReadiness(business) {
-  const accountConfigured = Boolean(
-    process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
-  );
-  const senderConfigured = Boolean(
-    process.env.TWILIO_MESSAGING_SERVICE_SID ||
-      business.twilio_from_number ||
-      process.env.TWILIO_FROM_NUMBER ||
-      process.env.TWILIO_PHONE_NUMBER
-  );
+  const provider = (process.env.SMS_PROVIDER || "mock").toLowerCase();
+  const complianceApproved =
+    isTruthy(process.env.SMS_COMPLIANCE_APPROVED) ||
+    isApprovedSmsStatus(process.env.SMS_COMPLIANCE_STATUS) ||
+    isApprovedSmsStatus(process.env.TWILIO_A2P_CAMPAIGN_STATUS) ||
+    isApprovedSmsStatus(business.sms_compliance_status);
+
+  if (provider === "mock") {
+    return {
+      configured: false,
+      reason: "Mock SMS provider cannot send live SMS.",
+    };
+  }
+
+  if (provider === "twilio") {
+    const accountConfigured = Boolean(
+      process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
+    );
+    const senderConfigured = Boolean(
+      process.env.TWILIO_MESSAGING_SERVICE_SID ||
+        business.twilio_from_number ||
+        process.env.TWILIO_FROM_NUMBER ||
+        process.env.TWILIO_PHONE_NUMBER
+    );
+
+    return {
+      configured: accountConfigured && senderConfigured && complianceApproved,
+      reason: !accountConfigured
+        ? "SMS provider is not configured."
+        : !senderConfigured
+          ? "SMS sender is not configured."
+          : !complianceApproved
+            ? "SMS compliance approval is not recorded yet."
+            : null,
+    };
+  }
 
   return {
-    configured: accountConfigured && senderConfigured,
-    reason: !accountConfigured
-      ? "SMS provider is not configured."
-      : !senderConfigured
-        ? "SMS sender is not configured."
-        : null,
+    configured: false,
+    reason: "Selected SMS provider is not implemented yet.",
   };
 }
 

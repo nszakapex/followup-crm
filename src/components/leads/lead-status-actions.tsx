@@ -4,10 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateLeadStatus } from "@/app/actions/leads";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
-  MessageSquare,
-  Mail,
   CheckCircle,
   Star,
   XCircle,
@@ -31,15 +28,6 @@ export function LeadStatusActions({ leadId, currentStatus }: { leadId: string; c
 
   return (
     <div className="space-y-2">
-      <Button className="w-full justify-start" variant="outline" disabled>
-        <MessageSquare className="h-4 w-4 mr-2" />
-        Send SMS
-      </Button>
-      <Button className="w-full justify-start" variant="outline" disabled>
-        <Mail className="h-4 w-4 mr-2" />
-        Send Email
-      </Button>
-      <Separator className="my-3" />
       {currentStatus !== "contacted" && (
         <Button
           className="w-full justify-start"

@@ -3,7 +3,9 @@ export type NormalizedLeadPayload = {
   lastName: string | null;
   phone: string | null;
   email: string | null;
+  company: string | null;
   source: string;
+  serviceInterest: string | null;
   message: string | null;
   notes: string | null;
   externalCrmName: string;
@@ -14,13 +16,22 @@ export type NormalizedLeadPayload = {
 
 const SAFE_METADATA_KEYS = [
   "campaign",
+  "campaign_name",
+  "ad_name",
+  "city_or_zip",
   "formId",
   "form_id",
+  "form_name",
   "page",
+  "preferred_time",
   "url",
   "pathname",
   "referrer",
+  "vehicle",
 ];
+const BLOCKED_METADATA_KEY_RE =
+  /(authorization|cookie|password|secret|token|api[_-]?key|access[_-]?key|session)/i;
+const MAX_METADATA_KEYS = 30;
 
 export function normalizeLeadPayload(payload: unknown): NormalizedLeadPayload | null {
   if (!isRecord(payload)) return null;
@@ -34,12 +45,24 @@ export function normalizeLeadPayload(payload: unknown): NormalizedLeadPayload | 
   const lastName = limitString(lastNameInput ?? splitName.lastName, 80);
   const phone = normalizePhone(readString(payload, ["phone", "phone_number", "phoneNumber"]));
   const email = normalizeEmail(readString(payload, ["email", "email_address", "emailAddress"]));
+  const company = limitString(readString(payload, ["company", "business", "organization"]), 160);
   const source =
     limitString(
       readString(payload, ["source", "form_source", "formSource", "referrer", "page"]) ??
         "Website form",
       120
     ) ?? "Website form";
+  const serviceInterest = limitString(
+    readString(payload, [
+      "service_interest",
+      "serviceInterest",
+      "interest",
+      "service_requested",
+      "serviceRequested",
+      "requested_service",
+    ]),
+    180
+  );
   const message = limitString(
     readString(payload, ["message", "notes", "inquiry", "comments"]),
     1000
@@ -62,14 +85,16 @@ export function normalizeLeadPayload(payload: unknown): NormalizedLeadPayload | 
     limitString(
       readString(payload, ["external_crm_name", "externalCrmName"]),
       80
-    ) ?? "Website webhook";
+    ) ?? source;
 
   return {
     firstName,
     lastName,
     phone,
     email,
+    company,
     source,
+    serviceInterest,
     message,
     notes,
     externalCrmName,
@@ -80,7 +105,9 @@ export function normalizeLeadPayload(payload: unknown): NormalizedLeadPayload | 
       lastName,
       phone,
       email,
+      company,
       source,
+      serviceInterest,
       hasMessage: Boolean(message),
       externalCrmName,
       externalCrmId,
@@ -126,10 +153,7 @@ function getSafeMetadata(payload: Record<string, unknown>) {
   const nestedMetadata = firstRecord(payload, ["metadata", "meta"]);
 
   if (nestedMetadata) {
-    for (const key of SAFE_METADATA_KEYS) {
-      const value = valueToString(nestedMetadata[key]);
-      if (value) metadata[normalizeMetadataKey(key)] = limitString(value, 180) ?? value;
-    }
+    copySafeMetadataEntries(metadata, nestedMetadata, true);
   }
 
   for (const key of SAFE_METADATA_KEYS) {
@@ -138,6 +162,25 @@ function getSafeMetadata(payload: Record<string, unknown>) {
   }
 
   return metadata;
+}
+
+function copySafeMetadataEntries(
+  target: Record<string, string>,
+  source: Record<string, unknown>,
+  allowCustomKeys: boolean
+) {
+  for (const [rawKey, rawValue] of Object.entries(source)) {
+    if (Object.keys(target).length >= MAX_METADATA_KEYS) return;
+
+    const key = normalizeMetadataKey(rawKey);
+    if (!key || BLOCKED_METADATA_KEY_RE.test(key)) continue;
+    if (!allowCustomKeys && !SAFE_METADATA_KEYS.includes(rawKey)) continue;
+
+    const value = valueToString(rawValue);
+    if (!value) continue;
+
+    target[key] = limitString(value, 180) ?? value;
+  }
 }
 
 function buildNotes(message: string | null, metadata: Record<string, string>) {
@@ -181,6 +224,10 @@ function valueToString(value: unknown) {
     return String(value);
   }
 
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+
   return null;
 }
 
@@ -191,6 +238,10 @@ function limitString(value: string | null, maxLength: number): string | null {
 
 function normalizeMetadataKey(key: string) {
   if (key === "form_id") return "formId";
+  if (key === "campaign_name") return "campaignName";
+  if (key === "ad_name") return "adName";
+  if (key === "city_or_zip") return "cityOrZip";
+  if (key === "preferred_time") return "preferredTime";
   return key;
 }
 

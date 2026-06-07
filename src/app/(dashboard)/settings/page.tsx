@@ -121,21 +121,32 @@ export default async function SettingsPage() {
   ].filter(Boolean);
   const businessIdentityReady = Boolean(biz.name && biz.owner_email);
   const reviewLinkReady = Boolean(biz.google_review_link);
-  const leadCaptureReady = Boolean(biz.webhook_secret);
+  const inboundWebhookConfigured = Boolean(
+    process.env.INBOUND_WEBHOOK_SECRET || process.env.WEBHOOK_SECRET
+  );
+  const leadCaptureReady = inboundWebhookConfigured || Boolean(biz.webhook_secret);
   const reviewRequestsReady = Boolean(biz.review_requests_enabled && reviewLinkReady);
-  const appBaseUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
-  const webhookPath = `/api/webhooks/leads/${biz.id}/${biz.webhook_secret ?? "{secret}"}`;
+  const appBaseUrl = (
+    process.env.APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    ""
+  ).replace(/\/$/, "");
+  const webhookPath = "/api/webhooks/leads";
   const webhookEndpoint = appBaseUrl ? `${appBaseUrl}${webhookPath}` : webhookPath;
   const webhookExamplePayload = `{
-  "fullName": "Sarah Miller",
-  "phone": "5550101001",
+  "source": "meta_lead_ads",
+  "external_id": "1234567890",
+  "name": "Sarah Miller",
   "email": "sarah@example.com",
-  "source": "Website form",
+  "phone": "5550101001",
+  "company": "Miller Homes",
   "message": "Interested in booking an appointment.",
+  "service_interest": "Initial consultation",
   "metadata": {
-    "page": "/contact",
-    "campaign": "google-ads",
-    "formId": "homepage-contact"
+    "form_id": "homepage-contact",
+    "campaign_name": "google-ads",
+    "preferred_time": "Friday afternoon"
   }
 }`;
   const settingsReadinessItems: ReadinessItem[] = [
@@ -209,10 +220,10 @@ export default async function SettingsPage() {
           : "needs_setup",
     },
     {
-      title: "Pilot missed-call / lead webhook",
+      title: "Generic lead webhook",
       description: leadCaptureReady
-        ? "Private webhook ingestion is ready for the concierge pilot."
-        : "Pilot lead capture is not configured for this business.",
+        ? "Protected webhook ingestion is ready for forms, Zapier, Make, and missed-call tools."
+        : "Protected lead capture is not configured for this deployment.",
       status: leadCaptureReady ? "complete" : "needs_setup",
     },
     {
@@ -288,10 +299,14 @@ export default async function SettingsPage() {
               <div className="flex items-center justify-between gap-3">
                 <span className="text-muted-foreground">SMS delivery</span>
                 <Badge variant={smsReadiness.configured ? "secondary" : "outline"}>
-                  {smsReadiness.canAttemptLiveSend
+                  {!smsReadiness.enabled
+                    ? "Disabled"
+                    : smsReadiness.canAttemptLiveSend
                     ? "Ready for manual SMS test"
+                    : smsReadiness.provider === "mock"
+                      ? "Mock SMS active"
                     : smsReadiness.configured
-                      ? "A2P approval required"
+                      ? "Compliance approval required"
                       : "Missing provider config"}
                 </Badge>
               </div>
@@ -400,11 +415,10 @@ export default async function SettingsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Webhook className="h-4 w-4" />
-                Pilot missed-call / lead webhook
+                Generic lead webhook
               </CardTitle>
               <CardDescription>
-                Use this private endpoint from a website form, missed-call tool, or
-                concierge pilot automation.
+                Use this protected endpoint from a website form, Zapier, Make, or a missed-call tool.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -422,16 +436,19 @@ export default async function SettingsPage() {
                   <div className="rounded-lg border border-border/70 bg-muted/30 p-3 font-mono text-xs break-all">
                     POST {webhookEndpoint}
                   </div>
+                  <div className="rounded-lg border border-border/70 bg-muted/30 p-3 font-mono text-xs break-all">
+                    x-webhook-secret: your INBOUND_WEBHOOK_SECRET value
+                  </div>
                 </div>
               ) : (
                 <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-sm text-muted-foreground">
-                  Pilot lead capture is not configured for this business.
+                  Set INBOUND_WEBHOOK_SECRET and INBOUND_WEBHOOK_BUSINESS_ID in the server environment.
                 </div>
               )}
               <p className="text-xs leading-5 text-muted-foreground">
-                Keep this URL private because it contains the lead capture secret. The CRM
-                creates or updates matching leads by email first, then phone. Phone or email is
-                required. This pilot webhook does not send SMS, email, or review requests.
+                Keep the header value private. The CRM creates or updates matching leads by
+                source plus external ID first, then email or phone. Phone or email is required.
+                This webhook does not send SMS or review requests.
               </p>
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">

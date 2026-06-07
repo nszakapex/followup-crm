@@ -9,6 +9,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
+// Legacy optional inbound adapter. Core SMS sending now uses the provider-neutral
+// src/lib/sms layer, and SMS_PROVIDER=mock does not depend on this route.
+
 type TwilioSmsPayload = {
   from: string | null;
   to: string | null;

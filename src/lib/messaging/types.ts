@@ -1,4 +1,11 @@
-export type DeliveryProvider = "twilio" | "resend" | "test_mode" | "blocked";
+export type DeliveryProvider =
+  | "mock"
+  | "twilio"
+  | "telnyx"
+  | "plivo"
+  | "resend"
+  | "test_mode"
+  | "blocked";
 
 export type DeliveryResult =
   | {

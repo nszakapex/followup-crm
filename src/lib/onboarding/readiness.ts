@@ -222,11 +222,12 @@ export async function getBusinessReadiness(
     business?.sms_compliance_status
   );
   const smsMissing = [
-    smsReadiness.accountConfigured ? null : "Twilio account SID/auth token",
+    smsReadiness.accountConfigured ? null : `${smsReadiness.providerLabel} credentials`,
     smsReadiness.usesMessagingService || smsReadiness.senderConfigured
       ? null
-      : "Twilio messaging service or from number",
-    smsReadiness.complianceApproved || testModeActive ? null : "SMS A2P compliance approval",
+      : `${smsReadiness.providerLabel} sender`,
+    smsReadiness.complianceApproved || testModeActive ? null : "SMS compliance approval",
+    smsReadiness.provider !== "mock" || testModeActive ? null : "Live SMS provider",
   ].filter(Boolean) as string[];
 
   const emailReadiness = getEmailProviderReadiness(business?.resend_from_email);

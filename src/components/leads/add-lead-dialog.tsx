@@ -42,7 +42,7 @@ export function AddLeadDialog() {
         <Plus className="h-4 w-4 mr-2" />
         Add Lead
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] overflow-y-auto sm:w-full">
         <DialogHeader>
           <DialogTitle>Add a new lead</DialogTitle>
           <DialogDescription>
@@ -75,9 +75,23 @@ export function AddLeadDialog() {
               <Input id="email" name="email" type="email" placeholder="sarah@example.com" />
             </div>
           </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="company">Company</Label>
+              <Input id="company" name="company" placeholder="Miller Homes" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="service_interest">Interest</Label>
+              <Input id="service_interest" name="service_interest" placeholder="Estimate, booking, quote" />
+            </div>
+          </div>
           <div className="space-y-2">
             <Label htmlFor="source">Source</Label>
             <Input id="source" name="source" placeholder="e.g. Website, Referral, Google" />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="next_followup_at">Next follow-up</Label>
+            <Input id="next_followup_at" name="next_followup_at" type="datetime-local" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="notes">Notes</Label>

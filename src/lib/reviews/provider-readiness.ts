@@ -68,7 +68,14 @@ export function getReviewProviderReadiness({
 }: ProviderReadinessParams): ReviewProviderReadiness {
   const missingFields: string[] = [];
   const warnings: string[] = [];
-  const providerLabel = channel === "sms" ? "Twilio SMS" : "Resend email";
+  const smsProviderReadiness =
+    channel === "sms"
+      ? getSmsProviderReadiness(
+          business?.twilio_from_number,
+          business?.sms_compliance_status
+        )
+      : null;
+  const providerLabel = smsProviderReadiness?.providerLabel ?? "Resend email";
   const scheduledCodePath = codePath === "automation_run" || codePath === "scheduled_run";
 
   if (!business?.id) missingFields.push("Business");
@@ -140,10 +147,7 @@ export function getReviewProviderReadiness({
 
   const providerReadiness =
     channel === "sms"
-      ? getSmsProviderReadiness(
-          business?.twilio_from_number,
-          business?.sms_compliance_status
-        )
+      ? smsProviderReadiness!
       : getEmailProviderReadiness(business?.resend_from_email);
 
   if (!providerReadiness.configured) {
@@ -155,7 +159,16 @@ export function getReviewProviderReadiness({
     "complianceApproved" in providerReadiness &&
     !providerReadiness.complianceApproved
   ) {
-    missingFields.push("SMS A2P compliance approval");
+    missingFields.push("SMS compliance approval");
+  }
+
+  if (
+    channel === "sms" &&
+    "canAttemptLiveSend" in providerReadiness &&
+    !providerReadiness.canAttemptLiveSend &&
+    missingFields.length === 0
+  ) {
+    missingFields.push("SMS live provider");
   }
 
   if (missingFields.length > 0) {
@@ -172,7 +185,7 @@ export function getReviewProviderReadiness({
       requiresManualConfirmation: true,
       userFacingExplanation:
         channel === "sms"
-          ? "Blocked - SMS provider, A2P compliance, or review setup is incomplete. No message will be sent."
+          ? "Blocked - SMS provider, compliance, or review setup is incomplete. No message will be sent."
           : "Blocked — email provider or review setup is incomplete. No message will be sent.",
     };
   }

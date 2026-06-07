@@ -60,7 +60,11 @@ export default async function LeadsPage(props: {
     .eq("business_id", profile.business_id)
     .order("created_at", { ascending: false });
 
-  if (searchParams.status && searchParams.status !== "all") {
+  if (searchParams.status === "followup_due") {
+    query = query
+      .not("next_followup_at", "is", null)
+      .lte("next_followup_at", new Date().toISOString());
+  } else if (searchParams.status && searchParams.status !== "all") {
     query = query.eq("status", searchParams.status);
   }
 
@@ -93,6 +97,12 @@ export default async function LeadsPage(props: {
   ).length;
   const bookedOrCompleted = allLeads.filter((lead) =>
     ["booked", "completed", "review_requested"].includes(lead.status)
+  ).length;
+  const dueFollowups = allLeads.filter(
+    (lead) =>
+      lead.next_followup_at &&
+      new Date(lead.next_followup_at) <= new Date() &&
+      !["booked", "completed", "review_requested", "lost"].includes(lead.status)
   ).length;
   const upcomingFollowups = allLeads.filter(
     (lead) => lead.next_followup_at && new Date(lead.next_followup_at) >= new Date()
@@ -142,10 +152,11 @@ export default async function LeadsPage(props: {
           tone={needsReply > 0 ? "attention" : "neutral"}
         />
         <MetricCard
-          label="Progressed"
-          value={bookedOrCompleted}
-          context={`${upcomingFollowups} future follow-up${upcomingFollowups === 1 ? "" : "s"}`}
+          label="Due follow-ups"
+          value={dueFollowups}
+          context={`${upcomingFollowups} scheduled later; ${bookedOrCompleted} progressed`}
           icon={ArrowRight}
+          tone={dueFollowups > 0 ? "attention" : "neutral"}
         />
       </div>
 
@@ -186,8 +197,17 @@ export default async function LeadsPage(props: {
                         <StatusBadge status={lead.status as LeadStatus} />
                       </div>
                       <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
-                        {lead.notes || lead.ai_summary || lead.source || "No notes yet"}
+                        {lead.service_interest ||
+                          lead.notes ||
+                          lead.ai_summary ||
+                          lead.source ||
+                          "No notes yet"}
                       </p>
+                      {lead.company && (
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {lead.company}
+                        </p>
+                      )}
                     </div>
 
                     <div className="grid gap-1 text-sm text-muted-foreground sm:grid-cols-2 md:block">

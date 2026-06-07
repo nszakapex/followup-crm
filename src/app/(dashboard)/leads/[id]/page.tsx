@@ -22,6 +22,7 @@ import {
   sendAutomationAction,
 } from "@/app/actions/automations";
 import { AddNoteForm } from "@/components/leads/add-note-form";
+import { LeadEditForm } from "@/components/leads/lead-edit-form";
 import { LeadStatusActions } from "@/components/leads/lead-status-actions";
 import { ManualSendSubmitButton } from "@/components/reviews/manual-send-submit-button";
 import { Badge } from "@/components/ui/badge";
@@ -575,6 +576,18 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
               <Separator />
 
               <div className="grid gap-3 text-sm">
+                {lead.company && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Company</span>
+                    <span className="text-right">{lead.company}</span>
+                  </div>
+                )}
+                {lead.service_interest && (
+                  <div className="flex justify-between gap-3">
+                    <span className="text-muted-foreground">Interest</span>
+                    <span className="text-right">{lead.service_interest}</span>
+                  </div>
+                )}
                 <div className="flex justify-between gap-3">
                   <span className="text-muted-foreground">Created</span>
                   <span className="text-right">{formatDate(lead.created_at)}</span>
@@ -597,6 +610,16 @@ export default async function LeadDetailPage(props: { params: Promise<{ id: stri
                   </div>
                 )}
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Edit lead</CardTitle>
+              <CardDescription>Update contact info, source context, notes, and follow-up timing.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <LeadEditForm lead={lead} />
             </CardContent>
           </Card>
 

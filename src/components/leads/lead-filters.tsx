@@ -6,6 +6,8 @@ import { Badge } from "@/components/ui/badge";
 const filters = [
   { label: "All", value: "all" },
   { label: "New", value: "new" },
+  { label: "Contacted", value: "contacted" },
+  { label: "Follow Up", value: "followup_due" },
   { label: "Needs Reply", value: "needs_reply" },
   { label: "Interested", value: "interested" },
   { label: "Booked", value: "booked" },

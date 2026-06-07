@@ -1097,13 +1097,22 @@ scheduled runs still create pending actions only and still reject
 
 Manual approval of a single SMS action now also requires:
 
-- Twilio provider configuration
-- explicit A2P approval
+- `SMS_PROVIDER` to select a real implemented provider for live SMS
+- provider configuration
+- explicit SMS compliance approval
 - valid lead phone destination
 - lead not opted out
 - test/skip mode disabled only for intentional live testing
 
 If any SMS compliance check fails, the manual action is blocked with a safe
-reason and no Twilio request is made. STOP replies received through
-`/api/webhooks/twilio/sms` mark the lead opted out, so future manual SMS actions
-for that lead are blocked.
+reason and no SMS provider request is made. `SMS_PROVIDER=mock` records only a
+safe mock/test outcome. STOP replies received through the legacy Twilio webhook
+at `/api/webhooks/twilio/sms` mark the lead opted out, so future manual SMS
+actions for that lead are blocked.
+
+Current SMS provider behavior:
+
+- `SMS_PROVIDER=mock` is the safe default for local/test workflows.
+- Twilio is optional legacy support, not a required default provider.
+- Future Telnyx/Plivo support should be added through `src/lib/sms` adapters.
+- Automation routes must remain unable to send through any SMS provider.

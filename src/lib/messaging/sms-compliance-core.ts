@@ -11,7 +11,8 @@ export type InboundSmsHandling = "normal_reply" | "opt_out" | "help";
 
 export type SmsComplianceApproval = {
   approved: boolean;
-  source: "env" | "a2p_status" | "business_status" | null;
+  source: "env" | "compliance_status" | "a2p_status" | "business_status" | null;
+  complianceStatus: string | null;
   campaignStatus: string | null;
   businessStatus: string | null;
 };
@@ -97,6 +98,7 @@ export function getSmsComplianceApproval(
   env: Record<string, string | undefined>,
   businessSmsComplianceStatus?: string | null
 ): SmsComplianceApproval {
+  const complianceStatus = normalizeStatus(env.SMS_COMPLIANCE_STATUS);
   const campaignStatus = normalizeStatus(env.TWILIO_A2P_CAMPAIGN_STATUS);
   const businessStatus = normalizeStatus(businessSmsComplianceStatus);
 
@@ -104,6 +106,17 @@ export function getSmsComplianceApproval(
     return {
       approved: true,
       source: "env",
+      complianceStatus,
+      campaignStatus,
+      businessStatus,
+    };
+  }
+
+  if (isApprovedStatus(complianceStatus)) {
+    return {
+      approved: true,
+      source: "compliance_status",
+      complianceStatus,
       campaignStatus,
       businessStatus,
     };
@@ -113,6 +126,7 @@ export function getSmsComplianceApproval(
     return {
       approved: true,
       source: "a2p_status",
+      complianceStatus,
       campaignStatus,
       businessStatus,
     };
@@ -122,6 +136,7 @@ export function getSmsComplianceApproval(
     return {
       approved: true,
       source: "business_status",
+      complianceStatus,
       campaignStatus,
       businessStatus,
     };
@@ -130,6 +145,7 @@ export function getSmsComplianceApproval(
   return {
     approved: false,
     source: null,
+    complianceStatus,
     campaignStatus,
     businessStatus,
   };

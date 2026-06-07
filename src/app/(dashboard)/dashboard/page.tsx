@@ -246,6 +246,12 @@ export default async function DashboardPage() {
     ["new", "needs_reply", "interested", "booked"].includes(lead.status)
   ).length;
   const needsReply = leads.filter((lead) => lead.status === "needs_reply").length;
+  const dueFollowups = leads.filter(
+    (lead) =>
+      lead.next_followup_at &&
+      new Date(lead.next_followup_at) <= new Date() &&
+      !["booked", "completed", "review_requested", "lost"].includes(lead.status)
+  ).length;
   const reviewRequestsSent = reviewRequests.filter(
     (request) => request.sent_at || ["sent", "clicked", "completed"].includes(request.status)
   ).length;
@@ -268,7 +274,11 @@ export default async function DashboardPage() {
   const conversionRate = percent(conversionCount, totalLeads);
   const hasBusinessProfile = Boolean(business?.name);
   const hasReviewLink = Boolean(business?.google_review_link);
-  const leadCaptureReady = Boolean(business?.webhook_secret);
+  const leadCaptureReady = Boolean(
+    process.env.INBOUND_WEBHOOK_SECRET ||
+      process.env.WEBHOOK_SECRET ||
+      business?.webhook_secret
+  );
   const reviewRequestsEnabled = Boolean(business?.review_requests_enabled);
   const leadFollowupEnabled = Boolean(business?.lead_followup_enabled);
   const smsReadiness = getSmsProviderReadiness(
@@ -362,10 +372,10 @@ export default async function DashboardPage() {
       cta: totalLeads > 0 ? "Open" : "Add lead",
     },
     {
-      title: "Missed-call / lead source",
+      title: "Webhook lead source",
       description: leadCaptureReady
-        ? "A private pilot webhook is configured for form or missed-call lead ingestion."
-        : "Set up the private pilot webhook before relying on automated missed-call capture.",
+        ? "A protected webhook is configured for forms, Zapier, Make, or missed-call lead ingestion."
+        : "Set up the protected lead webhook before relying on automated capture.",
       status: leadCaptureReady ? "complete" : "needs_setup",
       href: "/settings",
       cta: "Review",
@@ -443,6 +453,15 @@ export default async function DashboardPage() {
           description: "These leads are waiting for a response.",
           href: "/leads?status=needs_reply",
           cta: "Open leads",
+          priority: "High" as const,
+        }
+      : null,
+    dueFollowups > 0
+      ? {
+          title: `Follow up with ${dueFollowups} lead${dueFollowups === 1 ? "" : "s"}`,
+          description: "These leads have a due follow-up date.",
+          href: "/leads?status=followup_due",
+          cta: "Open follow-ups",
           priority: "High" as const,
         }
       : null,

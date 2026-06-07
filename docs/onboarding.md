@@ -84,9 +84,11 @@ SMS readiness is determined server-side from safe booleans only.
 Ready when either:
 
 - local/test delivery is active, or
-- Twilio account credentials are configured and either a messaging service or from number is configured
+- `SMS_PROVIDER=mock` is selected for safe mock/test recording, or
+- a real implemented SMS provider is configured and compliance-approved for manual live testing
 
-The browser never receives the Twilio SID, auth token, messaging service SID, or sender secret values.
+The browser never receives provider API keys, auth tokens, messaging service
+IDs, or sender secret values.
 
 ### Email Readiness
 
@@ -254,15 +256,16 @@ Supabase redirect URL requirements for password reset/auth callbacks.
 
 ## Phase 16 SMS Compliance Setup
 
-Live SMS remains blocked until Twilio A2P approval is confirmed. Before enabling
-manual SMS testing:
+Live SMS remains blocked until a real provider is selected, provider config is
+present, and compliance approval is recorded. Local/test mode should use
+`SMS_PROVIDER=mock`. Before enabling manual live SMS testing:
 
-- configure Twilio env vars server-side
-- set the business `twilio_from_number`
-- configure Twilio inbound webhook at `/api/webhooks/twilio/sms`
-- test HELP and STOP from an operator-owned phone
+- configure the selected provider env vars server-side
+- set `SMS_COMPLIANCE_APPROVED=true` only after compliance approval
+- keep Twilio webhook setup limited to optional legacy Twilio inbound support
+- if using legacy Twilio inbound, configure `/api/webhooks/twilio/sms`
+- test HELP and STOP from an operator-owned phone when inbound support is used
 - confirm STOP marks the matched lead opted out
-- set `SMS_COMPLIANCE_APPROVED=true` only after A2P approval
 
 The setup and settings pages show SMS provider/compliance readiness without
 showing provider secrets. Automatic SMS sends, cron SMS sends, bulk sends, and

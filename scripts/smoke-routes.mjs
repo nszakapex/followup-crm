@@ -90,7 +90,7 @@ function startServer() {
       ...process.env,
       PORT: String(port),
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "ignore", "pipe"],
   });
 }
 
@@ -129,7 +129,7 @@ async function main() {
     await runChecks();
     console.log("Smoke route checks passed. No provider sends were attempted.");
   } finally {
-    await stopServer(server);
+    await Promise.race([stopServer(server), wait(10_000)]);
   }
 
   void stderr;
@@ -142,7 +142,7 @@ async function stopServer(server) {
     const killer = spawn("taskkill", ["/pid", String(server.pid), "/t", "/f"], {
       stdio: "ignore",
     });
-    await once(killer, "close");
+    await Promise.race([once(killer, "close"), wait(5_000)]);
   } else {
     server.kill("SIGTERM");
   }
@@ -150,7 +150,11 @@ async function stopServer(server) {
   await Promise.race([once(server, "close"), wait(5_000)]);
 }
 
-main().catch((error) => {
+main()
+  .then(() => {
+    process.exit(0);
+  })
+  .catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
-});
+  });

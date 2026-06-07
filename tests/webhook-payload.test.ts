@@ -10,9 +10,12 @@ test("normalizes website lead payloads into safe lead fields", () => {
     email: "SARAH@EXAMPLE.TEST",
     source: "Missed call form",
     message: "Can I book a detail?",
+    company: "Miller Homes",
+    service_interest: "Interior detail",
     metadata: {
       page: "/contact",
       campaign: "local-service",
+      preferred_time: "Friday afternoon",
       token: "should-not-be-kept",
     },
   });
@@ -22,8 +25,11 @@ test("normalizes website lead payloads into safe lead fields", () => {
   assert.equal(result.lastName, "Miller");
   assert.equal(result.phone, "5550101001");
   assert.equal(result.email, "sarah@example.test");
+  assert.equal(result.company, "Miller Homes");
+  assert.equal(result.serviceInterest, "Interior detail");
   assert.equal(result.metadata.page, "/contact");
   assert.equal(result.metadata.campaign, "local-service");
+  assert.equal(result.metadata.preferredTime, "Friday afternoon");
   assert.equal(result.metadata.token, undefined);
   assert.equal(result.eventPayload.hasMessage, true);
 });

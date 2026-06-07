@@ -157,13 +157,17 @@ Before a real local service business uses the CRM:
 Use [concierge-pilot.md](./concierge-pilot.md) for the full Phase 13 pilot
 workflow, webhook validation, provider validation, and mobile QA checklist.
 
-## Phase 16 SMS Replies
+## Phase 16 SMS Replies and Provider-Neutral Sending
 
-Inbound SMS replies from Twilio are stored as `messages` when the inbound number
-matches a business `twilio_from_number` and the sender phone matches a lead in
-that business. Normal replies mark the lead `needs_reply`; STOP-style replies
-mark `opted_out=true`; HELP replies are stored and surfaced for operator
-attention.
+Outbound SMS is provider-neutral and defaults to `SMS_PROVIDER=mock` for
+local/test mode. Twilio is optional legacy support only; future providers should
+be added as adapters under `src/lib/sms/providers`.
+
+Inbound SMS replies from the legacy Twilio webhook are stored as `messages` when
+the inbound number matches a business `twilio_from_number` and the sender phone
+matches a lead in that business. Normal replies mark the lead `needs_reply`;
+STOP-style replies mark `opted_out=true`; HELP replies are stored and surfaced
+for operator attention.
 
 This is not a chat composer and does not add automatic replies beyond safe
 Twilio webhook STOP/HELP responses. Business owners see replies in `/messages`

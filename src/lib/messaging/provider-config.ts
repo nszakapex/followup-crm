@@ -5,8 +5,18 @@ import {
   getSmsReadinessState,
   type SmsReadinessState,
 } from "@/lib/messaging/sms-compliance-core";
+import {
+  getSelectedSmsProviderName,
+  getSmsProviderLabel,
+  isRealSmsProvider,
+} from "@/lib/sms/provider";
+import type { SmsProviderName } from "@/lib/sms/types";
 
 export type SmsProviderReadiness = {
+  enabled: boolean;
+  provider: SmsProviderName;
+  providerLabel: string;
+  mockMode: boolean;
   configured: boolean;
   accountConfigured: boolean;
   usesMessagingService: boolean;
@@ -14,7 +24,8 @@ export type SmsProviderReadiness = {
   senderSource: "business" | "env" | null;
   sender: string | null;
   complianceApproved: boolean;
-  complianceSource: "env" | "a2p_status" | "business_status" | null;
+  complianceSource: "env" | "compliance_status" | "a2p_status" | "business_status" | null;
+  complianceStatus: string | null;
   businessComplianceStatus: string | null;
   a2pCampaignStatus: string | null;
   state: SmsReadinessState;
@@ -39,6 +50,10 @@ export function isDeliverySkipMode() {
   return isTruthy(process.env.REVIEW_REQUEST_SKIP_DELIVERY);
 }
 
+export function isSmsEnabled(env: Record<string, string | undefined> = process.env) {
+  return isTruthy(env.SMS_ENABLED);
+}
+
 export function shouldSkipReviewDelivery() {
   if (isDeliveryTestMode() || isDeliverySkipMode()) return true;
 
@@ -57,33 +72,70 @@ export function getDeliveryModeLabel() {
 }
 
 export function getSmsProviderReadiness(
-  businessTwilioFromNumber?: string | null,
+  businessSmsFromNumber?: string | null,
   businessSmsComplianceStatus?: string | null
 ): SmsProviderReadiness {
-  const accountConfigured = Boolean(
+  const smsEnabled = isSmsEnabled();
+  const provider = getSelectedSmsProviderName();
+  const providerLabel = getSmsProviderLabel(provider);
+  const mockMode = provider === "mock";
+  const envSender = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER || null;
+  const sender = businessSmsFromNumber || envSender;
+  const senderSource = businessSmsFromNumber ? "business" : envSender ? "env" : null;
+  const twilioAccountConfigured = Boolean(
     process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
   );
-  const usesMessagingService = Boolean(process.env.TWILIO_MESSAGING_SERVICE_SID);
-  const envSender = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER || null;
-  const sender = businessTwilioFromNumber || envSender;
-  const senderSource = businessTwilioFromNumber ? "business" : envSender ? "env" : null;
-  const senderConfigured = Boolean(sender);
-  const configured = accountConfigured && (usesMessagingService || senderConfigured);
+  const twilioUsesMessagingService = Boolean(process.env.TWILIO_MESSAGING_SERVICE_SID);
+  const twilioSenderConfigured = Boolean(sender);
+  const twilioConfigured =
+    twilioAccountConfigured && (twilioUsesMessagingService || twilioSenderConfigured);
+
+  const accountConfigured =
+    provider === "twilio" ? twilioAccountConfigured : provider === "mock" ? true : false;
+  const usesMessagingService = provider === "twilio" ? twilioUsesMessagingService : false;
+  const senderConfigured =
+    provider === "twilio" ? twilioSenderConfigured : provider === "mock" ? true : false;
+  const configured = smsEnabled
+    ? provider === "twilio"
+      ? twilioConfigured
+      : provider === "mock"
+        ? true
+        : false
+    : false;
   const compliance = getSmsComplianceApproval(process.env, businessSmsComplianceStatus);
-  const state = getSmsReadinessState({
-    deliverySkipped: shouldSkipReviewDelivery(),
-    providerConfigured: configured,
+  const deliverySkipped = shouldSkipReviewDelivery();
+  const canAttemptLiveSend =
+    smsEnabled &&
+    isRealSmsProvider(provider) &&
+    configured &&
+    compliance.approved &&
+    !deliverySkipped;
+  const state =
+    !smsEnabled
+      ? "blocked"
+      : mockMode && !deliverySkipped
+      ? "blocked"
+      : getSmsReadinessState({
+          deliverySkipped,
+          providerConfigured: isRealSmsProvider(provider) ? configured : false,
+          complianceApproved: compliance.approved,
+        });
+  const reason = getSmsReadinessReason({
+    provider,
+    providerLabel,
+    smsEnabled,
+    accountConfigured,
+    usesMessagingService,
+    senderConfigured,
     complianceApproved: compliance.approved,
+    deliverySkipped,
   });
-  const reason = !accountConfigured
-    ? "Missing Twilio account SID or auth token."
-    : !usesMessagingService && !senderConfigured
-      ? "Missing Twilio messaging service SID or from number."
-      : !compliance.approved
-        ? "SMS A2P compliance is not approved yet."
-      : null;
 
   return {
+    enabled: smsEnabled,
+    provider,
+    providerLabel,
+    mockMode,
     configured,
     accountConfigured,
     usesMessagingService,
@@ -92,12 +144,48 @@ export function getSmsProviderReadiness(
     sender,
     complianceApproved: compliance.approved,
     complianceSource: compliance.source,
+    complianceStatus: compliance.complianceStatus,
     businessComplianceStatus: compliance.businessStatus,
     a2pCampaignStatus: compliance.campaignStatus,
     state,
-    canAttemptLiveSend: configured && compliance.approved && !shouldSkipReviewDelivery(),
+    canAttemptLiveSend,
     reason,
   };
+}
+
+function getSmsReadinessReason({
+  provider,
+  providerLabel,
+  smsEnabled,
+  accountConfigured,
+  usesMessagingService,
+  senderConfigured,
+  complianceApproved,
+  deliverySkipped,
+}: {
+  provider: SmsProviderName;
+  providerLabel: string;
+  smsEnabled: boolean;
+  accountConfigured: boolean;
+  usesMessagingService: boolean;
+  senderConfigured: boolean;
+  complianceApproved: boolean;
+  deliverySkipped: boolean;
+}) {
+  if (!smsEnabled) return "SMS is disabled by SMS_ENABLED=false.";
+  if (deliverySkipped) return null;
+  if (provider === "mock") {
+    return "Mock SMS provider records SMS attempts only. Select a live SMS provider before live SMS.";
+  }
+  if (provider === "telnyx" || provider === "plivo") {
+    return `${providerLabel} adapter is not implemented yet.`;
+  }
+  if (!accountConfigured) return "Missing Twilio account SID or auth token.";
+  if (!usesMessagingService && !senderConfigured) {
+    return "Missing Twilio messaging service SID or from number.";
+  }
+  if (!complianceApproved) return "SMS compliance approval is not recorded yet.";
+  return null;
 }
 
 export function getEmailProviderReadiness(

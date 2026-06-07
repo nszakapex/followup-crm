@@ -421,18 +421,22 @@ requests and cannot perform this field test.
 
 ## Phase 16 SMS Compliance Gate
 
-Phase 16 adds a live-SMS compliance gate before Twilio can be called. The SMS
-send path now requires Twilio configuration plus explicit A2P approval through
-`SMS_COMPLIANCE_APPROVED=true`, `TWILIO_A2P_CAMPAIGN_STATUS=approved`, or an
-approved business SMS compliance status.
+Phase 16 adds a live-SMS compliance gate before any carrier/provider can be
+called. SMS now uses `SMS_PROVIDER`, with `mock` as the safe local/test default.
+Twilio remains optional legacy support only.
+
+The SMS send path requires a real implemented provider, provider configuration,
+and explicit compliance approval through `SMS_COMPLIANCE_APPROVED=true`,
+`SMS_COMPLIANCE_STATUS=approved`, legacy `TWILIO_A2P_CAMPAIGN_STATUS=approved`,
+or an approved business SMS compliance status.
 
 If approval is missing, SMS review requests are `blocked` with a safe reason and
-no Twilio request is made. If test/skip mode is active, no Twilio request is
-made. If the lead is opted out, no Twilio request is made.
+no carrier/provider request is made. If test/skip mode is active, no provider
+request is made. If the lead is opted out, no provider request is made.
 
-Inbound Twilio replies are accepted at `/api/webhooks/twilio/sms`, stored as
-matched inbound `messages`, and shown on the lead timeline. STOP-style replies
-mark the lead opted out; HELP and normal replies mark the lead as needing
-operator attention where applicable.
+Legacy inbound Twilio replies are accepted at `/api/webhooks/twilio/sms`, stored
+as matched inbound `messages`, and shown on the lead timeline. STOP-style
+replies mark the lead opted out; HELP and normal replies mark the lead as
+needing operator attention where applicable.
 
 See [sms-compliance.md](./sms-compliance.md) for setup and testing.

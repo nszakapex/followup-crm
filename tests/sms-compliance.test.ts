@@ -16,6 +16,7 @@ import {
 test("SMS compliance approval requires explicit approved signal", () => {
   assert.equal(getSmsComplianceApproval({}).approved, false);
   assert.equal(getSmsComplianceApproval({ SMS_COMPLIANCE_APPROVED: "true" }).approved, true);
+  assert.equal(getSmsComplianceApproval({ SMS_COMPLIANCE_STATUS: "approved" }).approved, true);
   assert.equal(
     getSmsComplianceApproval({ TWILIO_A2P_CAMPAIGN_STATUS: "approved" }).approved,
     true

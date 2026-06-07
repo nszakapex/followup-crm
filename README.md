@@ -1,199 +1,315 @@
 # FollowUp CRM
 
-FollowUp CRM is a local-service-business CRM for missed-call capture, lead
-follow-up, review requests, and owner-facing follow-up visibility.
+FollowUp CRM is a lightweight follow-up system for small businesses, solo
+operators, freelancers, and simple service-sales workflows. It captures leads,
+tracks status, records notes/activity, schedules follow-ups, and sends owner
+email alerts through Resend.
 
-This repository is not a prospecting system. It does not include cold email,
-scraping, mockup generation, ad audits, autonomous agents, or bulk outbound
-campaigns.
+The app is generic. 96 Mobile Detailing can use it as a configured deployment,
+but the code is not hardcoded to that business.
 
-## Current Pilot Scope
+## Core Features
 
-The app supports a controlled concierge pilot where setup can be helped by the
-operator:
+- Supabase email/password auth with protected dashboard routes
+- Business profile/settings stored in Supabase
+- Manual lead creation with idempotent email/phone duplicate handling
+- Generic authenticated lead webhook at `POST /api/webhooks/leads`
+- Pipeline/status tracking for new, contacted, interested, booked/completed,
+  review-requested, needs-reply, and lost leads
+- Lead detail page with contact info, company, interest, notes, timeline, and
+  follow-up date
+- Activity stored through messages/audit logs where practical
+- Resend owner notification email for new manual or webhook leads
+- Optional SMS provider layer with `SMS_ENABLED=false` as the safe v1 default
+- Demo seed/reset scripts that run only when called manually
 
-- Supabase auth, business profiles, and protected dashboard pages
-- lead capture through a private webhook
-- lead list/detail views and customer-style lead records
-- review request lifecycle tracking
-- manual review request sends through server-side readiness checks
-- automation checks that create pending actions only
-- one-at-a-time manual approval for pending actions
-- setup/readiness and beta diagnostics
-- demo/reset/verify scripts for safe testing
+## Tech Stack
 
-Provider sends are never automatic. Cron and scheduled automation routes cannot
-send SMS, email, or review requests.
-
-## Local Development
-
-Install dependencies:
-
-```powershell
-npm install
-```
-
-Create `.env.local` from `env.example`, then start the app:
-
-```powershell
-npm run dev
-```
-
-Open:
-
-```text
-http://localhost:3000
-```
-
-For mobile LAN testing, run the dev server on the PC and open the LAN URL from
-the phone. Supabase Auth redirect URLs must include localhost, the LAN origin,
-and production callback/update-password URLs. See `docs/concierge-pilot.md`.
+- Framework: Next.js App Router
+- Auth/database: Supabase Auth, Postgres, RLS
+- Email: Resend, server-side only
+- SMS: optional provider abstraction, Twilio adapter isolated behind flags
+- Package manager: npm
+- Deployment target: Vercel or any Node-capable Next.js host
 
 ## Required Environment
 
-Core Supabase variables:
+Copy `env.example` to `.env.local` for local development and configure matching
+variables in production.
+
+Required for basic launch:
 
 ```text
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
-```
-
-Production app URL:
-
-```text
+APP_URL=
 NEXT_PUBLIC_APP_URL=
-NEXT_PUBLIC_SITE_URL=
-```
-
-Automation endpoint secrets:
-
-```text
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=
+OWNER_NOTIFY_EMAIL=
+INBOUND_WEBHOOK_SECRET=
+INBOUND_WEBHOOK_BUSINESS_ID=
 AUTOMATION_RUN_SECRET=
-CRON_SECRET=
 ```
 
-Review delivery safety:
+Recommended defaults:
 
 ```text
 REVIEW_REQUEST_TEST_MODE=true
 REVIEW_REQUEST_SKIP_DELIVERY=true
+SMS_ENABLED=false
+SMS_PROVIDER=mock
 ```
 
-Keep test/skip mode enabled for local and demo work. Set both values to `false`
-only when intentionally validating one live provider/channel.
-
-Optional provider variables:
+Optional:
 
 ```text
+DATABASE_URL=
+BUSINESS_NAME=
+BUSINESS_EMAIL=
+BUSINESS_PHONE=
+BUSINESS_TIMEZONE=America/Denver
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_MESSAGING_SERVICE_SID=
 TWILIO_FROM_NUMBER=
 TWILIO_PHONE_NUMBER=
-SMS_COMPLIANCE_APPROVED=false
-TWILIO_A2P_CAMPAIGN_STATUS=
 TWILIO_WEBHOOK_VALIDATE_SIGNATURE=false
-RESEND_API_KEY=
-RESEND_FROM_EMAIL=
 ```
-
-For the first controlled live provider validation, use exactly one channel.
-The recommended first channel is Resend email because it has the smallest pilot
-surface in this codebase. Keep live SMS disabled until Twilio A2P approval is
-confirmed and `SMS_COMPLIANCE_APPROVED=true` is intentionally set.
 
 Do not prefix server secrets with `NEXT_PUBLIC_`.
 
-## Supabase Setup
+## Local Setup
 
-Apply migrations from `supabase/migrations` to the target Supabase project.
+```powershell
+npm install
+copy env.example .env.local
+npm run dev
+```
 
-If the Supabase CLI is unavailable, use the Supabase SQL Editor and apply
-migrations in order. Migration `007_phase_7c_review_request_lifecycle.sql` must
-be applied before relying on review request lifecycle persistence in live data.
-Migration `008_phase_16_sms_compliance_inbound.sql` adds read indexes for
-Twilio inbound message idempotency and inbound message visibility.
+Open `http://localhost:3000`, sign up, complete onboarding, then open
+`/settings` to confirm business configuration and provider readiness.
 
-## Demo Data
+## Database Setup
 
-Seed demo/beta data:
+Create a Supabase project, enable email/password auth, then apply migrations in
+order from `supabase/migrations`.
+
+If using the Supabase CLI:
+
+```powershell
+supabase db push
+```
+
+If the CLI is unavailable, paste each migration into the Supabase SQL editor in
+filename order. Migration `009_product_ready_v1.sql` adds v1 lead fields and
+webhook lookup indexes.
+
+Demo data is optional and never loads automatically:
 
 ```powershell
 npm run seed:demo
-```
-
-Reset demo/beta data:
-
-```powershell
 npm run reset:demo
 ```
 
-Verify beta fixture/readiness without mutating data:
+## Resend Setup
 
-```powershell
-npm run verify:beta -- --business-id=BUSINESS_ID
+1. Create a Resend API key.
+2. Verify the sending domain/address.
+3. Set `RESEND_API_KEY`.
+4. Set `RESEND_FROM_EMAIL`, for example `leads@updates.example.com`.
+5. Set `OWNER_NOTIFY_EMAIL`.
+
+New manual and webhook leads are saved first. If Resend is missing or fails, the
+lead remains in the database and the failure is logged/handled.
+
+## SMS And Twilio
+
+SMS is optional for v1. Keep:
+
+```text
+SMS_ENABLED=false
 ```
 
-Demo data uses fake contacts only. Do not use real customer data in demo reset
-or seed runs.
+With SMS disabled:
 
-## Pilot Missed-Call Webhook
+- lead capture works
+- dashboard works
+- Resend works
+- Twilio variables may be missing
+- no live SMS send is attempted
 
-The initial missed-call ingestion path is a private lead-capture webhook:
+Only set `SMS_ENABLED=true` and `SMS_PROVIDER=twilio` after Twilio credentials,
+sender/messaging service, and compliance approval are ready.
+
+## Generic Lead Webhook
+
+Endpoint:
 
 ```http
-POST /api/webhooks/leads/[businessId]/[secret]
+POST https://your-domain.com/api/webhooks/leads
 ```
 
-Example payload:
+Headers:
+
+```http
+Content-Type: application/json
+x-webhook-secret: YOUR_INBOUND_WEBHOOK_SECRET
+```
+
+Payload:
 
 ```json
 {
-  "fullName": "Sarah Miller",
-  "phone": "5550101001",
-  "email": "sarah@example.test",
-  "source": "Missed call - pilot test",
-  "message": "Called about booking an appointment."
+  "source": "meta_lead_ads",
+  "external_id": "string",
+  "name": "string",
+  "email": "string",
+  "phone": "string",
+  "company": "string",
+  "message": "string",
+  "service_interest": "string",
+  "metadata": {
+    "form_id": "string",
+    "campaign_name": "string",
+    "ad_name": "string",
+    "custom_field": "value"
+  }
 }
 ```
 
-Expected behavior:
+Behavior:
 
-- valid payload creates or updates one lead
-- repeated payload updates the matching lead
-- phone or email is required
-- no provider send occurs
-- no review request is sent
-- no automation action is approved automatically
+- rejects missing/invalid `x-webhook-secret` with `401`
+- rejects invalid JSON/payloads with `400`
+- dedupes by `source + external_id`, then email, then normalized phone
+- creates a lead with status `new` when no duplicate exists
+- updates safe missing fields on duplicates
+- records webhook/message/audit activity where practical
+- sends a Resend owner notification when configured
 
-See `docs/lead-webhook.md` for the full webhook contract.
+Response:
 
-For the full pilot workflow, provider validation steps, mobile QA, and Supabase
-redirect URL checklist, see `docs/concierge-pilot.md`.
-
-## SMS Compliance and Inbound Replies
-
-SMS live sending remains blocked until Twilio A2P approval is confirmed. The
-app now checks Twilio provider configuration, A2P approval, destination validity,
-and local opt-out state before any live SMS provider call can happen.
-
-Inbound Twilio replies can be posted to:
-
-```http
-POST /api/webhooks/twilio/sms
+```json
+{
+  "ok": true,
+  "lead_id": "uuid",
+  "created": true,
+  "duplicate": false
+}
 ```
 
-Matched inbound SMS replies are stored in `messages`, shown on `/messages` and
-`/leads/[id]`, and normal replies mark the lead `needs_reply`. STOP-like
-keywords mark the lead `opted_out=true`, which blocks future SMS. HELP is stored
-and returns a safe support response.
+Verification against a running app:
 
-See `docs/sms-compliance.md` before configuring Twilio.
+```powershell
+npm run test:webhook
+```
+
+## Meta Lead Ads Through Zapier Or Make
+
+Use this v1 flow:
+
+```text
+Meta Lead Ads Form -> Zapier/Make trigger -> Webhook POST
+-> /api/webhooks/leads -> CRM lead -> Resend notification -> dashboard follow-up
+```
+
+Zapier/Make setup:
+
+1. Trigger: new Meta Lead Ads lead.
+2. Action: Webhooks by Zapier/Make, custom request.
+3. Method: `POST`.
+4. URL: `https://your-domain.com/api/webhooks/leads`.
+5. Header: `x-webhook-secret: YOUR_INBOUND_WEBHOOK_SECRET`.
+6. Header: `Content-Type: application/json`.
+7. Body:
+
+```json
+{
+  "source": "meta_lead_ads",
+  "external_id": "{{lead_id}}",
+  "name": "{{full_name}}",
+  "email": "{{email}}",
+  "phone": "{{phone_number}}",
+  "message": "{{message}}",
+  "service_interest": "{{service_requested}}",
+  "metadata": {
+    "form_id": "{{form_id}}",
+    "campaign_name": "{{campaign_name}}",
+    "ad_name": "{{ad_name}}",
+    "city_or_zip": "{{city_or_zip}}",
+    "vehicle": "{{vehicle}}",
+    "preferred_time": "{{preferred_time}}"
+  }
+}
+```
+
+Test once, confirm a lead appears in `/leads`, then test the same payload again
+and confirm it updates the same lead.
+
+Direct Meta OAuth/API integration is a later enhancement, not required for v1.
+
+## Deployment
+
+Vercel:
+
+1. Push the repo to GitHub.
+2. Import the project in Vercel.
+3. Set all required environment variables.
+4. Set Supabase Auth redirect URLs:
+   - `https://your-domain.com/callback`
+   - `https://your-domain.com/update-password`
+5. Apply Supabase migrations.
+6. Deploy.
+7. Run checks:
+
+```powershell
+npm run test
+npm run lint
+npm run build
+```
+
+Post-deploy verification:
+
+- sign up/sign in/sign out
+- create a manual lead
+- set a follow-up date
+- add a note
+- POST a webhook lead
+- POST the same webhook lead again
+- confirm owner notification email arrives
+- confirm SMS remains disabled when `SMS_ENABLED=false`
+
+## Example 96 Mobile Detailing Configuration
+
+Use these as environment/configuration examples only:
+
+```text
+BUSINESS_NAME="96 Mobile Detailing"
+BUSINESS_EMAIL="owner@example.com"
+BUSINESS_PHONE="+15550101001"
+BUSINESS_TIMEZONE="America/Denver"
+RESEND_FROM_EMAIL="leads@updates.96mobiledetailing.com"
+OWNER_NOTIFY_EMAIL="owner@example.com"
+SMS_ENABLED=false
+```
+
+Set the actual business name/email/phone in onboarding or `/settings`.
+
+## Troubleshooting
+
+- `401` from webhook: missing or incorrect `x-webhook-secret`.
+- `503` from webhook: set `INBOUND_WEBHOOK_SECRET` and
+  `INBOUND_WEBHOOK_BUSINESS_ID`, or ensure exactly one business exists.
+- Lead created but no email: check `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and
+  `OWNER_NOTIFY_EMAIL`.
+- SMS unavailable: expected when `SMS_ENABLED=false`.
+- Protected page redirects to login: sign in again or verify Supabase auth env.
+- Build needs network for fonts: this repo uses system fonts and should not
+  require Google Fonts at build time.
 
 ## Verification Commands
-
-Run before committing:
 
 ```powershell
 npm run test
@@ -203,116 +319,4 @@ npm run test:smoke
 git diff --check
 ```
 
-`npm run test:smoke` starts the built app on a local test port and checks that
-auth pages load and protected owner pages redirect to sign in. Run it after
-`npm run build`.
-
-## Automation API Safety Smoke Tests
-
-Missing secret should return `401`:
-
-```powershell
-Invoke-WebRequest `
-  -UseBasicParsing `
-  -Uri "http://localhost:3000/api/automations/run" `
-  -Method POST `
-  -ContentType "application/json" `
-  -Body '{}'
-```
-
-Provider sends requested should return `400`:
-
-```powershell
-Invoke-WebRequest `
-  -UseBasicParsing `
-  -Uri "http://localhost:3000/api/automations/run" `
-  -Method POST `
-  -Headers @{ Authorization = "Bearer YOUR_SECRET" } `
-  -ContentType "application/json" `
-  -Body '{"businessId":"BUSINESS_ID","dryRun":true,"allowProviderSends":true}'
-```
-
-Repeat the same safety checks for:
-
-```text
-/api/automations/scheduled-run
-```
-
-These routes must never send providers.
-
-## Manual QA Checklist
-
-Auth:
-
-- sign up
-- sign in
-- invalid login
-- forgot password request
-- update password from reset email
-- sign out
-
-Owner workflow:
-
-- open `/dashboard`
-- open `/setup`
-- confirm server/provider readiness shows no secrets
-- open `/settings`
-- add/update business profile
-- add Google review link
-- open `/billing` and confirm pilot billing is manual
-
-CRM:
-
-- create a lead manually
-- create a lead through the private webhook
-- open `/leads`
-- open `/leads/[id]`
-- update lead status
-- confirm missing destination blocks review sends
-- confirm missing review link blocks review sends
-- confirm test/skip mode records no live provider message
-- confirm repeat-click does not create duplicate skipped review requests
-
-Automations:
-
-- run dry-run automation check
-- run confirmed automation check
-- confirm pending actions appear
-- approve/review/dismiss one action at a time
-- confirm no send-all, bulk send, retry send, cron send, or automatic provider
-  send exists
-
-Mobile:
-
-- login on iPhone LAN URL
-- dashboard loads
-- setup page loads
-- leads list loads
-- lead detail action cards are usable
-- review request dialog/button semantics work
-- automation action approval remains one-action-at-a-time
-
-## Production Readiness Checklist
-
-Before a first paid customer:
-
-- guard all internal/admin routes
-- confirm password reset works with production Supabase redirect URLs
-- apply all migrations
-- configure production env vars
-- keep test/skip mode active until one provider is intentionally validated
-- validate exactly one provider/channel with one test lead
-- confirm webhook ingestion from the real missed-call/form source
-- confirm owner can understand setup status
-- confirm no fake billing/trial UI is shown
-- run test/lint/build
-
-Still deferred:
-
-- Stripe billing and entitlements
-- provider delivery callbacks/replies
-- delivery-status callbacks and broader SMS compliance QA
-- full phone-provider missed-call integration
-- team invites and advanced RBAC
-- public self-serve onboarding
-- premium UI redesign
+`npm run test:smoke` expects a built app and checks basic route behavior.

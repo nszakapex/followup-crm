@@ -419,7 +419,7 @@ async function sendFollowUpMessage({
       to: lead.phone,
       body,
       optedOut: lead.opted_out,
-      twilioFromNumber: business.twilio_from_number,
+      smsFromNumber: business.twilio_from_number,
       smsComplianceStatus: business.sms_compliance_status,
     });
   }
