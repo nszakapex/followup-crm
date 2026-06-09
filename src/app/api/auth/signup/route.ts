@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getSafeRuntimeDiagnostics } from "@/lib/env/supabase-diagnostics";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -111,10 +112,19 @@ export async function POST(request: Request) {
 
   if (authError) {
     const safeError = toSafeError(authError);
-    console.error("[auth.signup route] Supabase auth signup failed", {
+    const logPayload = {
       hasEmail: Boolean(email),
       error: safeError,
-    });
+    };
+
+    if (/invalid api key/i.test(safeError.message)) {
+      console.error("[auth.signup route] Supabase auth signup failed - invalid API key diagnostics", {
+        ...logPayload,
+        env: getSafeRuntimeDiagnostics(),
+      });
+    } else {
+      console.error("[auth.signup route] Supabase auth signup failed", logPayload);
+    }
 
     return redirectTo(request, `/signup?error=${getSignupErrorCode(safeError)}`);
   }

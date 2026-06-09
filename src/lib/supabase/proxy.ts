@@ -54,6 +54,7 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/callback");
   const isReviewRedirectRoute = pathname.startsWith("/r/");
   const isWebhookRoute = pathname.startsWith("/api/webhooks/");
+  const isDiagnosticsRoute = pathname === "/api/diagnostics/env-check";
   const isAuthApiRoute = pathname.startsWith("/api/auth/");
   const isAutomationRunRoute =
     pathname === "/api/automations/run" ||
@@ -62,6 +63,7 @@ export async function updateSession(request: NextRequest) {
     pathname === "/" ||
     isAuthRoute ||
     isAuthApiRoute ||
+    isDiagnosticsRoute ||
     isReviewRedirectRoute ||
     isWebhookRoute ||
     isAutomationRunRoute;

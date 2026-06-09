@@ -299,6 +299,18 @@ Set the actual business name/email/phone in onboarding or `/settings`.
 
 ## Troubleshooting
 
+- Production signup fails with `Invalid API key`:
+  - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and
+    `SUPABASE_SERVICE_ROLE_KEY` must all come from the same Supabase project.
+  - Do not mix one project URL with another project's anon/publishable key or
+    service-role key.
+  - Confirm Vercel has the variables set for the correct environment
+    (Production, Preview, or Development).
+  - After changing Vercel environment variables, redeploy the app. Existing
+    deployments keep the env values they were built/deployed with.
+  - Use `GET /api/diagnostics/env-check` with the `x-automation-secret` header
+    to verify the deployed app sees the expected Supabase URL host, project ref,
+    key family, and key lengths. The route never returns full secrets.
 - `401` from webhook: missing or incorrect `x-webhook-secret`.
 - `503` from webhook: set `INBOUND_WEBHOOK_SECRET` and
   `INBOUND_WEBHOOK_BUSINESS_ID`, or ensure exactly one business exists.
