@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { autoSendPendingSmsFollowUps } from "@/lib/automations/auto-send";
 import { evaluateProviderSendRequest } from "@/lib/automations/route-safety";
 import { runAutomations } from "@/lib/automations/run-automations";
 import type { RunAutomationsResult } from "@/lib/automations/types";
@@ -144,6 +145,7 @@ function buildRunMetadata({
   result,
   error,
   allowProviderSendsRequested,
+  providerSendsGranted = false,
 }: {
   businessId: string;
   dryRun: boolean;
@@ -154,6 +156,7 @@ function buildRunMetadata({
   result?: Extract<RunAutomationsResult, { success: true }>;
   error?: string;
   allowProviderSendsRequested: boolean;
+  providerSendsGranted?: boolean;
 }) {
   return {
     businessId,
@@ -165,15 +168,15 @@ function buildRunMetadata({
     skipped: result?.skipped ?? null,
     failures: result?.failures ?? null,
     duplicatesPrevented: result?.duplicatesPrevented ?? null,
-    providerSendsAllowed: false,
-    providerSendsBlocked: true,
+    providerSendsAllowed: providerSendsGranted,
+    providerSendsBlocked: !providerSendsGranted,
     allowProviderSendsRequested,
     source,
     route: ROUTE_PATH,
     completedAt,
     durationMs,
     requestMode: getRequestMode(dryRun),
-    reason: PROVIDER_SENDS_BLOCKED_REASON,
+    reason: providerSendsGranted ? null : PROVIDER_SENDS_BLOCKED_REASON,
     error: error ? sanitizeError(error) : null,
   };
 }
@@ -319,8 +322,10 @@ export async function POST(request: Request) {
     body.source === "cron" || request.headers.get("x-vercel-cron")
       ? "cron"
       : "api";
-  const allowProviderSendsRequested = false;
+  const allowProviderSendsRequested = providerSendPolicy.requested;
 
+  // The runner is queue-only (allowProviderSends:true makes it skip
+  // candidates); when provider sends were granted, dispatch happens below.
   const result = await runAutomations({
     businessId,
     dryRun,
@@ -357,6 +362,11 @@ export async function POST(request: Request) {
     return jsonResponse(response, getRunnerStatus(result));
   }
 
+  const providerSends =
+    !dryRun && allowProviderSendsRequested
+      ? await autoSendPendingSmsFollowUps(createAdminClient(), businessId)
+      : null;
+
   const completedAt = new Date().toISOString();
   const durationMs = Date.now() - startedAt;
   const metadata = buildRunMetadata({
@@ -368,12 +378,24 @@ export async function POST(request: Request) {
     completedAt,
     result,
     allowProviderSendsRequested,
+    providerSendsGranted: allowProviderSendsRequested && !dryRun,
   });
 
   await logRunEvent({
     businessId,
     action: "automation_run.completed",
-    metadata,
+    metadata: {
+      ...metadata,
+      providerSends: providerSends
+        ? {
+            attempted: providerSends.attempted,
+            sent: providerSends.sent,
+            blocked: providerSends.blocked,
+            failed: providerSends.failed,
+            reason: providerSends.reason,
+          }
+        : null,
+    },
   });
 
   return jsonResponse(
@@ -381,8 +403,9 @@ export async function POST(request: Request) {
       ...result,
       confirmRun,
       requestMode: metadata.requestMode,
-      providerSendsBlocked: metadata.providerSendsBlocked,
+      providerSendsBlocked: !allowProviderSendsRequested,
       allowProviderSendsRequested: metadata.allowProviderSendsRequested,
+      providerSends,
       completedAt,
       durationMs,
     },

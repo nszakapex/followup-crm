@@ -1,3 +1,5 @@
+import { isSmsProviderSendReady } from "@/lib/messaging/sms-compliance-core";
+
 export function parseAutomationBoolean(value: unknown, fallback: boolean) {
   if (typeof value === "undefined") return fallback;
   if (typeof value === "boolean") return value;
@@ -11,7 +13,16 @@ export function parseAutomationBoolean(value: unknown, fallback: boolean) {
   return null;
 }
 
-export function evaluateProviderSendRequest(value: unknown) {
+/**
+ * Provider sends from automation runs stay hard-blocked until the deployment
+ * is explicitly flipped live: SMS_ENABLED=true, a real SMS_PROVIDER, and
+ * SMS_COMPLIANCE_APPROVED (A2P campaign approved). Before that, requesting
+ * allowProviderSends is a 400 exactly as it always was.
+ */
+export function evaluateProviderSendRequest(
+  value: unknown,
+  env: Record<string, string | undefined> = process.env
+) {
   const allowProviderSends = parseAutomationBoolean(value, false);
 
   if (allowProviderSends === null) {
@@ -24,11 +35,19 @@ export function evaluateProviderSendRequest(value: unknown) {
   }
 
   if (allowProviderSends) {
+    if (!isSmsProviderSendReady(env)) {
+      return {
+        ok: false as const,
+        status: 400,
+        requested: true,
+        error:
+          "Provider sends are not enabled for scheduled automation runs. Set SMS_ENABLED, a real SMS_PROVIDER, and SMS_COMPLIANCE_APPROVED first.",
+      };
+    }
+
     return {
-      ok: false as const,
-      status: 400,
+      ok: true as const,
       requested: true,
-      error: "Provider sends are not enabled for scheduled automation runs.",
     };
   }
 

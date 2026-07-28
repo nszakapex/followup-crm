@@ -1,4 +1,7 @@
-import { formatSmsDestinationForProvider } from "@/lib/messaging/sms-compliance-core";
+import {
+  formatSmsDestinationForProvider,
+  TWILIO_PERMANENT_ERROR_CODES,
+} from "@/lib/messaging/sms-compliance-core";
 import type { SendSmsResult, SmsProvider } from "@/lib/sms/types";
 
 type TwilioApiResponse = {
@@ -58,6 +61,11 @@ export const twilioSmsProvider: SmsProvider = {
       formBody.append("From", input.from || config.envFromNumber!);
     }
 
+    const statusCallbackUrl = getStatusCallbackUrl();
+    if (statusCallbackUrl) {
+      formBody.append("StatusCallback", statusCallbackUrl);
+    }
+
     try {
       const response = await fetch(twilioUrl, {
         method: "POST",
@@ -72,11 +80,18 @@ export const twilioSmsProvider: SmsProvider = {
       const result = (await response.json().catch(() => ({}))) as TwilioApiResponse;
 
       if (!response.ok) {
+        const providerErrorCode =
+          typeof result.code === "number"
+            ? result.code
+            : Number.isInteger(Number(result.code))
+              ? Number(result.code)
+              : null;
+
         console.error("[sms.twilio] SMS delivery failed", {
           businessId: input.businessId,
           leadId: input.leadId,
           status: response.status,
-          providerCode: result.code ?? null,
+          providerCode: providerErrorCode,
         });
 
         return {
@@ -84,11 +99,14 @@ export const twilioSmsProvider: SmsProvider = {
           providerMessageId: null,
           status: "failed",
           errorCode: result.code ? String(result.code) : `http_${response.status}`,
+          providerErrorCode,
+          permanentFailure:
+            providerErrorCode !== null && TWILIO_PERMANENT_ERROR_CODES.has(providerErrorCode),
           errorMessage: "Twilio SMS provider rejected the send attempt.",
           raw: {
             httpStatus: response.status,
             providerStatus: result.status ?? null,
-            providerCode: result.code ?? null,
+            providerCode: providerErrorCode,
           },
         };
       }
@@ -118,6 +136,21 @@ export const twilioSmsProvider: SmsProvider = {
     }
   },
 };
+
+/**
+ * Delivery-status callback target. Prefers the server-side APP_URL so the
+ * webhook URL matches what signature validation reconstructs.
+ */
+function getStatusCallbackUrl() {
+  const base = (
+    process.env.APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    ""
+  ).replace(/\/+$/, "");
+
+  return base ? `${base}/api/webhooks/twilio/status` : null;
+}
 
 function normalizeTwilioStatus(status: string | undefined): SendSmsResult["status"] {
   switch (status?.toLowerCase()) {

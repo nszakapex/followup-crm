@@ -53,6 +53,7 @@ const typeIcons: Record<AutomationType, typeof Zap> = {
   instant_lead_reply: Zap,
   twenty_four_hour_followup: Clock,
   three_day_followup: CalendarDays,
+  seven_day_followup: CalendarDays,
   missed_call_textback: PhoneMissed,
   review_request: Star,
   weekly_owner_summary: BarChart3,
@@ -64,7 +65,9 @@ const typeDescriptions: Record<AutomationType, string> = {
   twenty_four_hour_followup:
     "Follows up after a day when a lead has not moved forward.",
   three_day_followup:
-    "Closes the loop with one final, polite check-in.",
+    "Checks in once more with an easy out for the customer.",
+  seven_day_followup:
+    "Closes the loop with one final, polite check-in, then the sequence stops.",
   missed_call_textback:
     "Responds to missed calls with a simple text-back.",
   review_request:

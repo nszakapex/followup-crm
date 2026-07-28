@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { autoSendPendingSmsFollowUps, type AutoSendSummary } from "@/lib/automations/auto-send";
 import { evaluateProviderSendRequest } from "@/lib/automations/route-safety";
 import { runAutomations } from "@/lib/automations/run-automations";
 import {
@@ -9,6 +10,7 @@ import {
   updateScheduleRunResult,
 } from "@/lib/automations/schedule";
 import type { RunAutomationsResult } from "@/lib/automations/types";
+import { isSmsProviderSendReady } from "@/lib/messaging/sms-compliance-core";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -39,6 +41,13 @@ type BusinessRunSummary = {
   skipped: number;
   failures: number;
   duplicatesPrevented: number;
+  providerSends?: {
+    attempted: number;
+    sent: number;
+    blocked: number;
+    failed: number;
+    reason: string | null;
+  };
   error?: string;
 };
 
@@ -237,6 +246,7 @@ function buildBusinessMetadata({
   completedAt,
   durationMs,
   source,
+  providerSendsAllowed,
 }: {
   dryRun: boolean;
   confirmRun: boolean;
@@ -244,6 +254,7 @@ function buildBusinessMetadata({
   completedAt: string;
   durationMs: number;
   source: "scheduler" | "cron";
+  providerSendsAllowed: boolean;
 }) {
   return {
     scheduledRun: true,
@@ -256,8 +267,9 @@ function buildBusinessMetadata({
     skipped: summary.skipped,
     failures: summary.failures,
     duplicatesPrevented: summary.duplicatesPrevented,
-    providerSendsAllowed: false,
-    providerSendsBlocked: true,
+    providerSendsAllowed,
+    providerSendsBlocked: !providerSendsAllowed,
+    providerSends: summary.providerSends ?? null,
     source,
     route: ROUTE_PATH,
     completedAt,
@@ -265,6 +277,44 @@ function buildBusinessMetadata({
     requestMode: dryRun ? "dry_run" : "confirmed",
     error: summary.error ? sanitizeError(summary.error) : null,
   };
+}
+
+type ScheduledRunParams = {
+  dryRun: boolean;
+  confirmRun: boolean;
+  businessLimit: number;
+  automationLimit: number;
+  suppliedBusinessId: string;
+  providerSendsAllowed: boolean;
+  source: "scheduler" | "cron";
+  startedAt: number;
+};
+
+/**
+ * Vercel Cron invokes with GET and `Authorization: Bearer $CRON_SECRET`.
+ * A cron tick is the explicit scheduled intent, so it runs confirmed
+ * (dryRun=false) with defaults, and provider sends are allowed exactly when
+ * the deployment env is flipped live (SMS_ENABLED + real provider +
+ * compliance approved) - the same gate the POST body flag goes through.
+ */
+export async function GET(request: Request) {
+  const startedAt = Date.now();
+  const auth = isAuthorized(request);
+
+  if (!auth.ok) {
+    return jsonResponse({ success: false, error: auth.error }, auth.status);
+  }
+
+  return executeScheduledRun({
+    dryRun: false,
+    confirmRun: true,
+    businessLimit: getConfiguredMaxBusinesses(),
+    automationLimit: DEFAULT_AUTOMATION_LIMIT,
+    suppliedBusinessId: "",
+    providerSendsAllowed: isSmsProviderSendReady(process.env),
+    source: "cron",
+    startedAt,
+  });
 }
 
 export async function POST(request: Request) {
@@ -342,8 +392,29 @@ export async function POST(request: Request) {
     return jsonResponse({ success: false, error: "Invalid business id." }, 400);
   }
 
+  return executeScheduledRun({
+    dryRun,
+    confirmRun,
+    businessLimit,
+    automationLimit,
+    suppliedBusinessId,
+    providerSendsAllowed: providerSendPolicy.requested,
+    source: request.headers.get("x-vercel-cron") ? "cron" : "scheduler",
+    startedAt,
+  });
+}
+
+async function executeScheduledRun({
+  dryRun,
+  confirmRun,
+  businessLimit,
+  automationLimit,
+  suppliedBusinessId,
+  providerSendsAllowed,
+  source,
+  startedAt,
+}: ScheduledRunParams) {
   const admin = createAdminClient();
-  const source = request.headers.get("x-vercel-cron") ? "cron" : "scheduler";
   const businessIds: string[] = [];
 
   if (suppliedBusinessId) {
@@ -372,6 +443,8 @@ export async function POST(request: Request) {
   const results: BusinessRunSummary[] = [];
 
   for (const businessId of businessIds) {
+    // The runner is queue-only by design (allowProviderSends:true makes it
+    // skip candidates); dispatch happens in the auto-send phase below.
     const result = await runAutomations({
       businessId,
       dryRun,
@@ -379,6 +452,20 @@ export async function POST(request: Request) {
       allowProviderSends: false,
     });
     const summary = summarizeResult(businessId, result);
+
+    // Dispatch phase: after the runner queues follow-up actions, send the
+    // eligible SMS ones through the compliance-gated provider layer.
+    if (!dryRun && providerSendsAllowed && summary.success) {
+      const autoSend: AutoSendSummary = await autoSendPendingSmsFollowUps(admin, businessId);
+      summary.providerSends = {
+        attempted: autoSend.attempted,
+        sent: autoSend.sent,
+        blocked: autoSend.blocked,
+        failed: autoSend.failed,
+        reason: autoSend.reason,
+      };
+    }
+
     const completedAt = new Date().toISOString();
     const durationMs = Date.now() - startedAt;
 
@@ -403,6 +490,7 @@ export async function POST(request: Request) {
         completedAt,
         durationMs,
         source,
+        providerSendsAllowed,
       }),
     });
   }
@@ -442,8 +530,12 @@ export async function POST(request: Request) {
       totalSkipped: totals.skipped,
       totalFailures: totals.failures,
       totalDuplicatesPrevented: totals.duplicatesPrevented,
-      providerSendsAllowed: false,
-      providerSendsBlocked: true,
+      providerSendsAllowed,
+      providerSendsBlocked: !providerSendsAllowed,
+      totalProviderSendsSent: results.reduce(
+        (acc, result) => acc + (result.providerSends?.sent ?? 0),
+        0
+      ),
       results,
       durationMs: Date.now() - startedAt,
     },

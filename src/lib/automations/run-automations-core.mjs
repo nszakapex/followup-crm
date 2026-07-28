@@ -9,7 +9,7 @@ const UUID_RE =
 const PROGRESSED_STATUSES = new Set(["booked", "completed", "review_requested", "lost"]);
 const ACTIVE_ACTION_STATUSES = ["pending_review", "approved_pending_send", "sent", "blocked", "send_failed"];
 const LEAD_SELECT =
-  "id, first_name, last_name, phone, email, source, status, notes, opted_out, created_at, last_contacted_at";
+  "id, first_name, last_name, phone, email, source, service_interest, status, notes, opted_out, created_at, last_contacted_at";
 const AUTOMATION_SELECT =
   "id, business_id, name, type, enabled, delay_hours, trigger_status, message_template, channel, last_triggered_at, trigger_count";
 const BUSINESS_SELECT =
@@ -128,14 +128,16 @@ function renderTemplate(template, business, lead) {
     last_name: lead.last_name || "",
     business_name: business.name || "",
     google_review_link: business.google_review_link || "",
+    service_interest: lead.service_interest || "your request",
     firstName: lead.first_name || "",
     lastName: lead.last_name || "",
     businessName: business.name || "",
     reviewLink: business.google_review_link || "",
+    serviceInterest: lead.service_interest || "your request",
   };
 
   return template.replace(
-    /\{\{\s*(first_name|last_name|business_name|google_review_link|firstName|lastName|businessName|reviewLink)\s*\}\}/g,
+    /\{\{\s*(first_name|last_name|business_name|google_review_link|service_interest|firstName|lastName|businessName|reviewLink|serviceInterest)\s*\}\}/g,
     (_, key) => values[key] || ""
   );
 }
@@ -146,7 +148,8 @@ function isOldEnough(automation, lead, now) {
 
   const anchor =
     automation.type === "twenty_four_hour_followup" ||
-    automation.type === "three_day_followup"
+    automation.type === "three_day_followup" ||
+    automation.type === "seven_day_followup"
       ? lead.last_contacted_at || lead.created_at
       : lead.created_at;
   const anchorDate = new Date(anchor);
@@ -251,6 +254,7 @@ function getSequenceActionType(automation, match) {
   if (automation.type === "instant_lead_reply") return "new_lead_initial";
   if (automation.type === "twenty_four_hour_followup") return "new_lead_followup_1";
   if (automation.type === "three_day_followup") return "no_response_followup";
+  if (automation.type === "seven_day_followup") return "new_lead_final";
   return automation.type;
 }
 

@@ -97,6 +97,22 @@ export function AddLeadDialog() {
             <Label htmlFor="notes">Notes</Label>
             <Textarea id="notes" name="notes" placeholder="What are they interested in?" rows={3} />
           </div>
+          <div className="flex items-start gap-2 rounded-md border border-border p-3">
+            <input
+              id="sms_consent"
+              name="sms_consent"
+              type="checkbox"
+              value="granted"
+              className="mt-0.5 h-4 w-4 accent-primary"
+            />
+            <div className="space-y-1">
+              <Label htmlFor="sms_consent">SMS consent obtained</Label>
+              <p className="text-xs text-muted-foreground">
+                Check only if this customer verbally agreed to receive texts about their
+                request. This is recorded for SMS compliance.
+              </p>
+            </div>
+          </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel

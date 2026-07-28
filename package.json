@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --import tsx --test tests/env-validation.test.ts tests/webhook-payload.test.ts tests/lead-webhook-secret.test.ts tests/automation-route-safety.test.ts tests/sms-compliance.test.ts tests/sms-provider.test.ts",
+    "test": "node --import tsx --test tests/env-validation.test.ts tests/webhook-payload.test.ts tests/lead-webhook-secret.test.ts tests/automation-route-safety.test.ts tests/sms-compliance.test.ts tests/sms-provider.test.ts tests/twilio-inbound-webhook.test.ts tests/follow-up-sequence.test.ts",
     "test:webhook": "node scripts/verify-lead-webhook.mjs",
     "test:smoke": "node scripts/smoke-routes.mjs",
     "seed:demo": "node scripts/seed-demo.mjs",

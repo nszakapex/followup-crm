@@ -1,5 +1,4 @@
-import "server-only";
-
+// Pure sequence rules - no "server-only" so tests can exercise the cadence.
 import type { AutomationType, LeadStatus, MessageChannel } from "@/types/database";
 import type { FollowUpTemplateKey } from "@/lib/automations/follow-up-templates";
 
@@ -11,6 +10,7 @@ export type FollowUpSequenceActionType =
   | "missed_call_followup_1"
   | "new_lead_initial"
   | "new_lead_followup_1"
+  | "new_lead_final"
   | "stale_lead_checkin"
   | "no_response_followup"
   | "completed_customer_review_nudge";
@@ -95,7 +95,9 @@ export const FOLLOW_UP_SEQUENCE_RULES: FollowUpSequenceRule[] = [
     automationType: "twenty_four_hour_followup",
     actionType: "new_lead_followup_1",
     queueActionType: "follow_up_message",
-    appliesToStatuses: ["contacted", "needs_reply"],
+    // needs_reply is deliberately excluded: an inbound reply stops the
+    // automated sequence and hands the conversation to the operator.
+    appliesToStatuses: ["contacted"],
     recommendedChannel: "sms",
     recommendedDelayHours: 24,
     recommendedDelayLabel: "24 hours after contact",
@@ -113,16 +115,34 @@ export const FOLLOW_UP_SEQUENCE_RULES: FollowUpSequenceRule[] = [
     automationType: "three_day_followup",
     actionType: "no_response_followup",
     queueActionType: "follow_up_message",
-    appliesToStatuses: ["contacted", "needs_reply"],
+    appliesToStatuses: ["contacted"],
     recommendedChannel: "sms",
     recommendedDelayHours: 72,
     recommendedDelayLabel: "3 days after contact",
     operatorReason: "Lead has not responded after earlier contact.",
-    messagePurpose: "Close the loop with one final polite check-in.",
+    messagePurpose: "Check in once more with an easy out.",
     manualApprovalRequired: true,
     duplicateWindowDays: 14,
     reasonCode: "three_day_followup",
     templateKey: "no_response_followup",
+    providerReadinessRequiredForQueue: false,
+    providerReadinessRequiredForSend: true,
+    suppressWhenReviewCompleted: false,
+  },
+  {
+    automationType: "seven_day_followup",
+    actionType: "new_lead_final",
+    queueActionType: "follow_up_message",
+    appliesToStatuses: ["contacted"],
+    recommendedChannel: "sms",
+    recommendedDelayHours: 168,
+    recommendedDelayLabel: "7 days after contact",
+    operatorReason: "Lead has gone quiet; send the final close-out touch.",
+    messagePurpose: "Close the loop with one final polite check-in, then stop.",
+    manualApprovalRequired: true,
+    duplicateWindowDays: 14,
+    reasonCode: "seven_day_followup",
+    templateKey: "new_lead_final",
     providerReadinessRequiredForQueue: false,
     providerReadinessRequiredForSend: true,
     suppressWhenReviewCompleted: false,

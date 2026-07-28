@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 
+import { sendFirstTouchSms } from "@/lib/automations/first-touch";
 import { sendLeadNotificationEmail } from "@/lib/messaging/lead-notifications";
+import { toE164 } from "@/lib/messaging/sms-compliance-core";
 import { createClient } from "@/lib/supabase/server";
 import { normalizePhone } from "@/lib/webhooks/lead-payload";
 import type { LeadStatus } from "@/types/database";
@@ -207,6 +209,9 @@ export async function createLead(formData: FormData) {
   const serviceInterest = readString(formData, "service_interest");
   const notes = readString(formData, "notes");
   const followup = parseFollowup(readString(formData, "next_followup_at"));
+  // Verbal opt-in must be verifiable for A2P audits: the toggle is explicit,
+  // and the note below records how consent was obtained.
+  const smsConsentGranted = readString(formData, "sms_consent") === "granted";
 
   if (!firstName) return { error: "First name is required." };
   if (!phone && !email) return { error: "A phone number or email is required." };
@@ -251,6 +256,10 @@ export async function createLead(formData: FormData) {
     return { id: existing.lead.id, duplicate: true };
   }
 
+  const consentNote = smsConsentGranted
+    ? "SMS consent obtained verbally at lead creation."
+    : null;
+
   const { data: lead, error } = await supabase
     .from("leads")
     .insert({
@@ -258,15 +267,19 @@ export async function createLead(formData: FormData) {
       first_name: firstName,
       last_name: nullable(lastName),
       phone: nullable(phone),
+      phone_e164: toE164(phone),
       email: nullable(email),
       company: nullable(company),
       source,
       service_interest: nullable(serviceInterest),
-      notes: nullable(notes),
+      notes: mergeNotes(nullable(notes), consentNote),
       next_followup_at: followup.value,
       metadata_json: {},
       status: "new",
       consent_source: "manual",
+      sms_consent_status: smsConsentGranted ? "opted_in" : "unknown",
+      sms_consent_source: smsConsentGranted ? "verbal" : null,
+      sms_consent_at: smsConsentGranted ? new Date().toISOString() : null,
     })
     .select("id")
     .single();
@@ -278,8 +291,34 @@ export async function createLead(formData: FormData) {
   await logAuditEvent(supabase, context, {
     action: "lead.created",
     leadId: lead.id,
-    metadata: { source: "manual" },
+    metadata: { source: "manual", smsConsentGranted },
   });
+
+  // T+0 first touch through the compliance gate; never blocks lead creation.
+  try {
+    const { data: businessRow } = await supabase
+      .from("businesses")
+      .select("id, name, owner_phone, twilio_from_number, sms_compliance_status")
+      .eq("id", context.businessId)
+      .maybeSingle();
+
+    if (businessRow) {
+      await sendFirstTouchSms({
+        business: businessRow,
+        lead: {
+          id: lead.id,
+          first_name: firstName,
+          phone: nullable(phone),
+          service_interest: nullable(serviceInterest),
+        },
+      });
+    }
+  } catch (error) {
+    console.warn("[lead-actions] First-touch SMS failed", {
+      leadId: lead.id,
+      error: error instanceof Error ? error.message : "Unknown first-touch error",
+    });
+  }
 
   await sendLeadNotificationEmail({
     businessId: context.businessId,
@@ -375,6 +414,7 @@ export async function updateLead(leadId: string, formData: FormData) {
       first_name: firstName,
       last_name: nullable(lastName),
       phone: nullable(phone),
+      phone_e164: toE164(phone),
       email: nullable(email),
       company: nullable(company),
       source: nullable(source),
