@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 import { sendFirstTouchSms } from "@/lib/automations/first-touch";
+import { sendOwnerLeadAlertSms } from "@/lib/messaging/owner-alerts";
 import {
   normalizeLeadPayload,
   normalizePhone,
@@ -369,7 +370,9 @@ export async function POST(
 
   const { data: business, error: businessError } = await supabase
     .from("businesses")
-    .select("id, webhook_secret, name, owner_phone, twilio_from_number, sms_compliance_status")
+    .select(
+      "id, webhook_secret, name, owner_phone, owner_sms_alerts, twilio_from_number, sms_compliance_status"
+    )
     .eq("id", businessId)
     .maybeSingle();
 
@@ -611,6 +614,31 @@ export async function POST(
       console.warn("[webhooks.leads] First-touch SMS failed", {
         leadId: saveResult.leadId,
         error: error instanceof Error ? error.message : "Unknown first-touch error",
+      });
+    }
+
+    // Owner alert alongside the owner email: fire-and-forget, fail-soft.
+    try {
+      await sendOwnerLeadAlertSms({
+        business: {
+          id: businessId,
+          owner_phone: (business as { owner_phone?: string | null }).owner_phone ?? null,
+          owner_sms_alerts:
+            (business as { owner_sms_alerts?: boolean | null }).owner_sms_alerts ?? null,
+          twilio_from_number:
+            (business as { twilio_from_number?: string | null }).twilio_from_number ?? null,
+        },
+        lead: {
+          id: saveResult.leadId,
+          name: [leadPayload.firstName, leadPayload.lastName].filter(Boolean).join(" ").trim(),
+          phone: leadPayload.phone,
+          serviceInterest: leadPayload.serviceInterest,
+        },
+      });
+    } catch (error) {
+      console.warn("[webhooks.leads] Owner alert SMS failed", {
+        leadId: saveResult.leadId,
+        error: error instanceof Error ? error.message : "Unknown owner-alert error",
       });
     }
   }

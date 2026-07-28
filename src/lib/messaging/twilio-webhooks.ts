@@ -17,7 +17,20 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export type TwilioWebhookDeps = {
   client?: DbClient;
   now?: () => Date;
+  /**
+   * Retry policy when a status callback finds no matching message row yet.
+   * The send path commits the pending row before the provider call, but the
+   * SID lands in a second update - a callback can still arrive in that gap.
+   */
+  statusUpdateRetry?: { attempts: number; delayMs: number };
 };
+
+const DEFAULT_STATUS_UPDATE_RETRY = { attempts: 3, delayMs: 400 };
+
+function sleep(ms: number) {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Structural subset of SupabaseClient so tests can pass a lightweight fake.
 type DbClient = {
@@ -340,6 +353,36 @@ async function logInboundSms({
   return error;
 }
 
+async function logOwnerInboundSms({
+  client,
+  businessId,
+  body,
+  messageSid,
+  receivedAt,
+}: {
+  client: DbClient;
+  businessId: string;
+  body: string;
+  messageSid: string | null;
+  receivedAt: string;
+}) {
+  const { error } = await client.from("messages").insert({
+    business_id: businessId,
+    lead_id: null,
+    channel: "sms",
+    direction: "inbound",
+    body: body.slice(0, 4000),
+    status: "received",
+    provider: "twilio",
+    provider_message_id: messageSid,
+    received_at: receivedAt,
+    error_message: "Inbound SMS from the business owner's phone. No lead processing applied.",
+    kind: "inbound",
+  });
+
+  return error;
+}
+
 async function upsertSuppression(
   client: DbClient,
   businessId: string,
@@ -540,6 +583,33 @@ export async function handleTwilioInboundSms(
 
   const business = businessMatch.business;
 
+  // The owner texting their own business line is operational traffic, not a
+  // lead conversation: log it and stop. No keyword handling (a STOP here must
+  // not suppress the owner's number), no lead matching, no needs_reply loops.
+  const ownerPhoneE164 = toE164(business.owner_phone);
+  if (ownerPhoneE164 && fromE164 && ownerPhoneE164 === fromE164) {
+    const alreadyStored = await hasExistingMessage(client, business.id, messageSid);
+
+    if (!alreadyStored) {
+      const ownerLogError = await logOwnerInboundSms({
+        client,
+        businessId: business.id,
+        body,
+        messageSid,
+        receivedAt: timestamp,
+      });
+
+      if (ownerLogError && isDevelopment()) {
+        console.warn("[twilio.sms] Failed to log owner inbound SMS", {
+          businessId: business.id,
+          error: ownerLogError.message,
+        });
+      }
+    }
+
+    return twimlResponse();
+  }
+
   // Opt-outs are honored even when no lead row matches - the suppression
   // list is phone-level and must survive lead deletion.
   if (handledAs === "opt_out") {
@@ -690,27 +760,48 @@ export async function handleTwilioStatusCallback(
 
   if (Object.keys(update).length === 0) return new Response(null, { status: 200 });
 
-  const { data, error } = await client
-    .from("messages")
-    .update(update)
-    .eq("provider", "twilio")
-    .eq("provider_message_id", sid)
-    .select("business_id, lead_id");
+  // Retry on zero matches: the callback can beat the send path's SID update
+  // by a beat even though the pending row itself is committed pre-send.
+  const retry = deps?.statusUpdateRetry ?? DEFAULT_STATUS_UPDATE_RETRY;
+  let message: { business_id: string; lead_id: string | null } | undefined;
 
-  if (error) {
-    if (isDevelopment()) {
-      console.warn("[twilio.status] Failed to update message status", {
-        sid,
-        error: error.message,
-      });
+  for (let attempt = 1; attempt <= Math.max(1, retry.attempts); attempt += 1) {
+    const { data, error } = await client
+      .from("messages")
+      .update(update)
+      .eq("provider", "twilio")
+      .eq("provider_message_id", sid)
+      .select("business_id, lead_id");
+
+    if (error) {
+      if (isDevelopment()) {
+        console.warn("[twilio.status] Failed to update message status", {
+          sid,
+          error: error.message,
+        });
+      }
+
+      return new Response(null, { status: 200 });
     }
+
+    message = (data ?? [])[0] as { business_id: string; lead_id: string | null } | undefined;
+    if (message) break;
+    if (attempt < Math.max(1, retry.attempts)) await sleep(retry.delayMs);
+  }
+
+  if (!message) {
+    // Unmatched after retries: surface it (in prod too) - these are exactly
+    // the stuck-pending rows the reconcile script has to repair otherwise.
+    console.warn("[twilio.status] No message row matched status callback", {
+      sid,
+      status: twilioStatus,
+    });
 
     return new Response(null, { status: 200 });
   }
 
-  const message = (data ?? [])[0] as { business_id: string; lead_id: string } | undefined;
-
-  if (message && isTwilioOptOutErrorCode(errorCode)) {
+  // Owner alerts carry no lead; carrier opt-outs only apply to lead traffic.
+  if (message.lead_id && isTwilioOptOutErrorCode(errorCode)) {
     const timestamp = nowIso(deps);
 
     const { data: leadData } = await client

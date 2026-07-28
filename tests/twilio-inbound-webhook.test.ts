@@ -386,3 +386,135 @@ test(
     assert.equal(suppression.phone_e164, LEAD.phone_e164);
   })
 );
+
+test(
+  "inbound SMS from the owner's phone is logged and stops - no lead processing",
+  withCleanTwilioEnv(async () => {
+    const db = createFakeDb({ businesses: [BUSINESS], leads: [LEAD], messages: [] });
+    const response = await handleTwilioInboundSms(
+      formRequest(inboundBody({ From: BUSINESS.owner_phone, Body: "on my way", MessageSid: "SM300" })),
+      { client: db.client }
+    );
+
+    assert.equal(response.status, 200);
+
+    const inserted = db.writesTo("messages", "insert");
+    assert.equal(inserted.length, 1);
+    const row = inserted[0].values as Record<string, unknown>;
+    assert.equal(row.lead_id, null);
+    assert.equal(row.direction, "inbound");
+    assert.equal(row.provider_message_id, "SM300");
+
+    assert.equal(db.writesTo("leads", "update").length, 0);
+    assert.equal(db.writesTo("sms_suppressions", "upsert").length, 0);
+  })
+);
+
+test(
+  "STOP from the owner's phone does not suppress the owner's number",
+  withCleanTwilioEnv(async () => {
+    const db = createFakeDb({ businesses: [BUSINESS], leads: [LEAD], messages: [] });
+    const response = await handleTwilioInboundSms(
+      formRequest(inboundBody({ From: BUSINESS.owner_phone, Body: "STOP", MessageSid: "SM301" })),
+      { client: db.client }
+    );
+
+    assert.equal(response.status, 200);
+    // No keyword handling for owner traffic: no suppression, no consent flip,
+    // and no app-level opt-out confirmation body.
+    assert.equal(db.writesTo("sms_suppressions", "upsert").length, 0);
+    assert.equal(db.writesTo("leads", "update").length, 0);
+    assert.equal(await response.text(), "<Response></Response>");
+  })
+);
+
+test(
+  "status callback retries when the message row has not committed yet",
+  withCleanTwilioEnv(async () => {
+    // First update attempt matches nothing; the row "commits" before the
+    // second attempt. Purpose-built fake: sequenced update results.
+    const updateResults: unknown[][] = [[], [{ business_id: BUSINESS.id, lead_id: LEAD.id }]];
+    const updates: Array<Record<string, unknown>> = [];
+    let attempts = 0;
+
+    const client = {
+      from(table: string) {
+        assert.equal(table, "messages");
+        const chain = {
+          update(values: Record<string, unknown>) {
+            updates.push(values);
+            return chain;
+          },
+          eq() {
+            return chain;
+          },
+          select() {
+            return chain;
+          },
+          then(resolve: (result: { data: unknown; error: null }) => unknown) {
+            const data = updateResults[Math.min(attempts, updateResults.length - 1)];
+            attempts += 1;
+            return Promise.resolve({ data, error: null }).then(resolve);
+          },
+        };
+        return chain;
+      },
+    };
+
+    const request = new Request("http://localhost/api/webhooks/twilio/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ MessageSid: "SM400", MessageStatus: "delivered" }).toString(),
+    });
+
+    const response = await handleTwilioStatusCallback(request, {
+      client,
+      statusUpdateRetry: { attempts: 3, delayMs: 0 },
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(attempts, 2);
+    assert.deepEqual(updates[0], { status: "delivered" });
+  })
+);
+
+test(
+  "status callback gives up cleanly when no row ever matches",
+  withCleanTwilioEnv(async () => {
+    let attempts = 0;
+    const client = {
+      from() {
+        const chain = {
+          update() {
+            return chain;
+          },
+          eq() {
+            return chain;
+          },
+          select() {
+            return chain;
+          },
+          then(resolve: (result: { data: unknown; error: null }) => unknown) {
+            attempts += 1;
+            return Promise.resolve({ data: [], error: null }).then(resolve);
+          },
+        };
+        return chain;
+      },
+    };
+
+    const request = new Request("http://localhost/api/webhooks/twilio/status", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ MessageSid: "SM401", MessageStatus: "delivered" }).toString(),
+    });
+
+    const response = await handleTwilioStatusCallback(request, {
+      client,
+      statusUpdateRetry: { attempts: 3, delayMs: 0 },
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(attempts, 3);
+  })
+);

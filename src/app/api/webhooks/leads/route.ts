@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { sendFirstTouchSms } from "@/lib/automations/first-touch";
 import { sendLeadNotificationEmail } from "@/lib/messaging/lead-notifications";
+import { sendOwnerLeadAlertSms } from "@/lib/messaging/owner-alerts";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authorizeSharedSecret } from "@/lib/webhooks/secret";
 import {
@@ -40,6 +41,7 @@ type BusinessTarget = {
   name: string | null;
   owner_email: string | null;
   owner_phone: string | null;
+  owner_sms_alerts: boolean | null;
   resend_from_email: string | null;
   twilio_from_number: string | null;
   sms_compliance_status: string | null;
@@ -128,7 +130,7 @@ async function resolveBusinessTarget(
 
     const { data, error } = await admin
       .from("businesses")
-      .select("id, name, owner_email, owner_phone, resend_from_email, twilio_from_number, sms_compliance_status")
+      .select("id, name, owner_email, owner_phone, owner_sms_alerts, resend_from_email, twilio_from_number, sms_compliance_status")
       .eq("id", businessId)
       .maybeSingle();
 
@@ -148,7 +150,7 @@ async function resolveBusinessTarget(
 
   const { data, error } = await admin
     .from("businesses")
-    .select("id, name, owner_email, owner_phone, resend_from_email, twilio_from_number, sms_compliance_status")
+    .select("id, name, owner_email, owner_phone, owner_sms_alerts, resend_from_email, twilio_from_number, sms_compliance_status")
     .limit(2);
 
   if (error) {
@@ -628,6 +630,29 @@ export async function POST(request: Request) {
       message: leadPayload.message,
       createdBy: "webhook",
     });
+
+    // Owner alert alongside the owner email: fire-and-forget, fail-soft.
+    try {
+      await sendOwnerLeadAlertSms({
+        business: {
+          id: businessTarget.business.id,
+          owner_phone: businessTarget.business.owner_phone ?? null,
+          owner_sms_alerts: businessTarget.business.owner_sms_alerts ?? null,
+          twilio_from_number: businessTarget.business.twilio_from_number ?? null,
+        },
+        lead: {
+          id: saveResult.leadId,
+          name: getLeadName(leadPayload),
+          phone: leadPayload.phone,
+          serviceInterest: leadPayload.serviceInterest,
+        },
+      });
+    } catch (error) {
+      console.warn("[webhooks.leads.generic] Owner alert SMS failed", {
+        leadId: saveResult.leadId,
+        error: error instanceof Error ? error.message : "Unknown owner-alert error",
+      });
+    }
   }
 
   return jsonResponse(

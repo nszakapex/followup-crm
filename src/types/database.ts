@@ -28,7 +28,8 @@ export type MessageKind =
   | "followup"
   | "review_request"
   | "reply"
-  | "inbound";
+  | "inbound"
+  | "owner_alert";
 
 export type UserRole = "owner" | "manager" | "staff" | "admin";
 

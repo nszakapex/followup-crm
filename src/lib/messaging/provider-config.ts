@@ -1,4 +1,6 @@
-import "server-only";
+// Kept free of "server-only" so tests can exercise the readiness gates (same
+// pattern as twilio-webhooks.ts). Only ever reads process.env - importing it
+// from a client component would silently see undefined vars, so don't.
 
 import {
   getSmsComplianceApproval,

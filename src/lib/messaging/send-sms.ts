@@ -15,6 +15,11 @@ import {
   type SmsConsentStatus,
   type SmsKind,
 } from "@/lib/messaging/sms-compliance-core";
+import {
+  applyProviderOutcomeToOutboundSms,
+  insertPendingOutboundSms,
+  SEQUENCE_STEP_KINDS,
+} from "@/lib/messaging/outbound-log";
 import type { DeliveryResult } from "@/lib/messaging/types";
 import { sendSms as sendSmsViaProvider } from "@/lib/sms";
 import type { MessageKind } from "@/types/database";
@@ -152,7 +157,7 @@ async function loadSmsGateContext({
         .eq("business_id", businessId)
         .eq("lead_id", leadId)
         .eq("direction", "outbound")
-        .in("kind", ["first_touch", "followup"])
+        .in("kind", [...SEQUENCE_STEP_KINDS])
         .in("status", ["pending", "sent", "delivered"]),
     ]);
 
@@ -497,6 +502,22 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
     };
   }
 
+  // The pending row is committed BEFORE the provider call so the delivery
+  // status callback can never race a row that does not exist yet. A message
+  // we cannot log is a message we do not send.
+  const logClient = createServiceClient();
+  const pendingRow = await insertPendingOutboundSms(logClient, {
+    businessId,
+    leadId,
+    body,
+    provider: readiness.provider,
+    kind: messageKind,
+  });
+
+  if (!pendingRow.id) {
+    return messageLogFailure(readiness.provider, pendingRow.error ?? "Insert failed.");
+  }
+
   const providerResult = await sendSmsViaProvider(
     {
       businessId,
@@ -508,19 +529,22 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
     { providerName: readiness.provider }
   );
 
+  const applyError = await applyProviderOutcomeToOutboundSms(logClient, pendingRow.id, {
+    status: providerResult.status,
+    providerMessageId: providerResult.providerMessageId ?? null,
+    providerErrorCode: providerResult.providerErrorCode ?? null,
+    errorMessage: providerResult.status === "failed" ? "SMS delivery failed." : null,
+  });
+
+  if (applyError.error && isDevelopment()) {
+    console.warn("[messaging.sms] Failed to apply provider outcome", {
+      messageId: pendingRow.id,
+      message: applyError.error,
+    });
+  }
+
   if (providerResult.status === "failed") {
     const userMessage = "SMS delivery failed.";
-    const messageError = await logSmsMessage({
-      businessId,
-      leadId,
-      body,
-      status: "failed",
-      provider: providerResult.provider,
-      providerMessageId: providerResult.providerMessageId ?? null,
-      errorMessage: userMessage,
-      kind: messageKind,
-      errorCode: providerResult.providerErrorCode ?? null,
-    });
 
     if (isTwilioOptOutErrorCode(providerResult.providerErrorCode)) {
       await recordCarrierOptOut({
@@ -529,8 +553,6 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
         phoneE164: gateContext.phoneE164,
       });
     }
-
-    if (messageError) return messageLogFailure(providerResult.provider, messageError.message);
 
     return {
       success: false,
@@ -541,20 +563,6 @@ export async function sendSms(params: SendSmsParams): Promise<DeliveryResult> {
       userMessage,
     };
   }
-
-  const messageStatus =
-    providerResult.status === "delivered" || providerResult.status === "sent" ? "sent" : "pending";
-  const messageError = await logSmsMessage({
-    businessId,
-    leadId,
-    body,
-    status: messageStatus,
-    provider: providerResult.provider,
-    providerMessageId: providerResult.providerMessageId ?? null,
-    kind: messageKind,
-  });
-
-  if (messageError) return messageLogFailure(providerResult.provider, messageError.message);
 
   return {
     success: true,

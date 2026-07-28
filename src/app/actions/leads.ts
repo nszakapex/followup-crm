@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { sendFirstTouchSms } from "@/lib/automations/first-touch";
 import { sendLeadNotificationEmail } from "@/lib/messaging/lead-notifications";
+import { sendOwnerLeadAlertSms } from "@/lib/messaging/owner-alerts";
 import { toE164 } from "@/lib/messaging/sms-compliance-core";
 import { createClient } from "@/lib/supabase/server";
 import { normalizePhone } from "@/lib/webhooks/lead-payload";
@@ -298,7 +299,7 @@ export async function createLead(formData: FormData) {
   try {
     const { data: businessRow } = await supabase
       .from("businesses")
-      .select("id, name, owner_phone, twilio_from_number, sms_compliance_status")
+      .select("id, name, owner_phone, owner_sms_alerts, twilio_from_number, sms_compliance_status")
       .eq("id", context.businessId)
       .maybeSingle();
 
@@ -312,6 +313,29 @@ export async function createLead(formData: FormData) {
           service_interest: nullable(serviceInterest),
         },
       });
+
+      // Owner alert alongside the owner email: fire-and-forget, fail-soft.
+      try {
+        await sendOwnerLeadAlertSms({
+          business: {
+            id: businessRow.id,
+            owner_phone: businessRow.owner_phone ?? null,
+            owner_sms_alerts: businessRow.owner_sms_alerts ?? null,
+            twilio_from_number: businessRow.twilio_from_number ?? null,
+          },
+          lead: {
+            id: lead.id,
+            name: `${firstName} ${lastName}`.trim(),
+            phone: nullable(phone),
+            serviceInterest: nullable(serviceInterest),
+          },
+        });
+      } catch (error) {
+        console.warn("[lead-actions] Owner alert SMS failed", {
+          leadId: lead.id,
+          error: error instanceof Error ? error.message : "Unknown owner-alert error",
+        });
+      }
     }
   } catch (error) {
     console.warn("[lead-actions] First-touch SMS failed", {
