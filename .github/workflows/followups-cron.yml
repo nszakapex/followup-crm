@@ -1,0 +1,22 @@
+name: Follow-ups cron
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  scheduled-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger scheduled follow-up run
+        run: |
+          code=$(curl -sS -o response.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://followup-crm-two.vercel.app/api/automations/scheduled-run")
+          echo "HTTP $code"
+          cat response.json
+          if [ "$code" != "200" ]; then
+            echo "Scheduled run failed with HTTP $code"
+            exit 1
+          fi
