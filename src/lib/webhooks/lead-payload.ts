@@ -1,7 +1,10 @@
+import { toE164 } from "@/lib/messaging/sms-compliance-core";
+
 export type NormalizedLeadPayload = {
   firstName: string;
   lastName: string | null;
   phone: string | null;
+  phoneE164: string | null;
   email: string | null;
   company: string | null;
   source: string;
@@ -11,6 +14,9 @@ export type NormalizedLeadPayload = {
   externalCrmName: string;
   externalCrmId: string | null;
   metadata: Record<string, string>;
+  /** "granted" only when the payload explicitly recorded SMS consent. */
+  smsConsent: "granted" | "denied" | null;
+  smsConsentSource: string | null;
   eventPayload: Record<string, unknown>;
 };
 
@@ -69,6 +75,18 @@ export function normalizeLeadPayload(payload: unknown): NormalizedLeadPayload | 
   );
   const metadata = getSafeMetadata(payload);
   const notes = buildNotes(message, metadata);
+  const smsConsent = readSmsConsent(payload);
+  const smsConsentSource = smsConsent
+    ? limitString(
+        readString(payload, ["sms_consent_source", "smsConsentSource"]) ??
+          readNestedString(payload, ["metadata", "meta"], [
+            "sms_consent_source",
+            "smsConsentSource",
+          ]) ??
+          "web_form",
+        80
+      )
+    : null;
   const externalCrmId = limitString(
     readString(payload, [
       "external_crm_id",
@@ -91,6 +109,7 @@ export function normalizeLeadPayload(payload: unknown): NormalizedLeadPayload | 
     firstName,
     lastName,
     phone,
+    phoneE164: toE164(phone),
     email,
     company,
     source,
@@ -100,6 +119,8 @@ export function normalizeLeadPayload(payload: unknown): NormalizedLeadPayload | 
     externalCrmName,
     externalCrmId,
     metadata,
+    smsConsent,
+    smsConsentSource,
     eventPayload: {
       firstName,
       lastName,
@@ -112,8 +133,42 @@ export function normalizeLeadPayload(payload: unknown): NormalizedLeadPayload | 
       externalCrmName,
       externalCrmId,
       metadata,
+      smsConsent,
     },
   };
+}
+
+/**
+ * Reads an explicit SMS consent outcome from the payload (top-level or inside
+ * metadata, e.g. Meta Lead Ads via Zapier passing metadata.sms_consent).
+ * Anything other than an explicit grant/denial returns null so the lead stays
+ * at consent "unknown" and the compliance gate holds business-initiated SMS.
+ */
+function readSmsConsent(payload: Record<string, unknown>): "granted" | "denied" | null {
+  const raw =
+    readString(payload, ["sms_consent", "smsConsent"]) ??
+    readNestedString(payload, ["metadata", "meta"], ["sms_consent", "smsConsent"]);
+
+  if (!raw) return null;
+
+  const normalized = raw.trim().toLowerCase();
+  if (["granted", "true", "yes", "1", "opted_in", "opt_in"].includes(normalized)) {
+    return "granted";
+  }
+  if (["denied", "false", "no", "0", "opted_out", "opt_out"].includes(normalized)) {
+    return "denied";
+  }
+
+  return null;
+}
+
+function readNestedString(
+  payload: Record<string, unknown>,
+  recordKeys: string[],
+  keys: string[]
+) {
+  const nested = firstRecord(payload, recordKeys);
+  return nested ? readString(nested, keys) : null;
 }
 
 export function normalizePhone(value: string | null): string | null {

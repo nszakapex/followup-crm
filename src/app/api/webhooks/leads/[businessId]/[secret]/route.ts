@@ -3,12 +3,13 @@ import { timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
+import { sendFirstTouchSms } from "@/lib/automations/first-touch";
 import {
   normalizeLeadPayload,
   normalizePhone,
   type NormalizedLeadPayload,
 } from "@/lib/webhooks/lead-payload";
-import type { LeadStatus } from "@/types/database";
+import type { LeadStatus, SmsConsentStatus } from "@/types/database";
 
 const MAX_PAYLOAD_BYTES = 64_000;
 const INVALID_PAYLOAD_ERROR =
@@ -20,7 +21,7 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 const LEAD_SELECT =
-  "id, first_name, last_name, phone, email, source, status, notes, external_crm_name, external_crm_id";
+  "id, first_name, last_name, phone, phone_e164, email, source, status, notes, external_crm_name, external_crm_id, sms_consent_status";
 const PROGRESSED_STATUSES = new Set<LeadStatus>([
   "booked",
   "completed",
@@ -34,12 +35,14 @@ type LeadMatch = {
   first_name: string;
   last_name: string | null;
   phone: string | null;
+  phone_e164: string | null;
   email: string | null;
   source: string | null;
   status: LeadStatus;
   notes: string | null;
   external_crm_name: string | null;
   external_crm_id: string | null;
+  sms_consent_status: SmsConsentStatus | null;
 };
 
 function createServiceClient() {
@@ -222,7 +225,19 @@ function buildLeadUpdate(existingLead: LeadMatch, lead: NormalizedLeadPayload) {
 
   if (lead.lastName && !existingLead.last_name) update.last_name = lead.lastName;
   if (lead.phone && !existingLead.phone) update.phone = lead.phone;
+  if (lead.phoneE164 && !existingLead.phone_e164) update.phone_e164 = lead.phoneE164;
   if (lead.email && !existingLead.email) update.email = lead.email;
+
+  // Consent may only upgrade unknown -> opted_in; opted_out is never
+  // downgraded by a repeat submission.
+  if (
+    lead.smsConsent === "granted" &&
+    (existingLead.sms_consent_status ?? "unknown") === "unknown"
+  ) {
+    update.sms_consent_status = "opted_in";
+    update.sms_consent_source = lead.smsConsentSource ?? "web_form";
+    update.sms_consent_at = new Date().toISOString();
+  }
   if (lead.source && !existingLead.source) update.source = lead.source;
   if (lead.externalCrmId && !existingLead.external_crm_id) {
     update.external_crm_id = lead.externalCrmId;
@@ -261,6 +276,7 @@ async function createLead(
       first_name: lead.firstName,
       last_name: lead.lastName,
       phone: lead.phone,
+      phone_e164: lead.phoneE164,
       email: lead.email,
       source: lead.source,
       notes: lead.notes,
@@ -269,6 +285,9 @@ async function createLead(
       external_crm_id: lead.externalCrmId,
       sync_status: lead.externalCrmId ? "synced" : "not_connected",
       consent_source: "website_webhook",
+      sms_consent_status: lead.smsConsent === "granted" ? "opted_in" : "unknown",
+      sms_consent_source: lead.smsConsent === "granted" ? lead.smsConsentSource : null,
+      sms_consent_at: lead.smsConsent === "granted" ? new Date().toISOString() : null,
     })
     .select("id")
     .single();
@@ -350,7 +369,7 @@ export async function POST(
 
   const { data: business, error: businessError } = await supabase
     .from("businesses")
-    .select("id, webhook_secret")
+    .select("id, webhook_secret, name, owner_phone, twilio_from_number, sms_compliance_status")
     .eq("id", businessId)
     .maybeSingle();
 
@@ -566,6 +585,35 @@ export async function POST(
       matchedBy: existingLead ? "email_phone_or_external_id" : null,
     },
   });
+
+  if (!existingLead) {
+    // T+0 first touch through the compliance gate; must never break capture.
+    try {
+      await sendFirstTouchSms({
+        business: {
+          id: businessId,
+          name: (business as { name?: string | null }).name ?? null,
+          owner_phone: (business as { owner_phone?: string | null }).owner_phone ?? null,
+          twilio_from_number:
+            (business as { twilio_from_number?: string | null }).twilio_from_number ?? null,
+          sms_compliance_status:
+            (business as { sms_compliance_status?: string | null }).sms_compliance_status ??
+            null,
+        },
+        lead: {
+          id: saveResult.leadId,
+          first_name: leadPayload.firstName,
+          phone: leadPayload.phone,
+          service_interest: leadPayload.serviceInterest,
+        },
+      });
+    } catch (error) {
+      console.warn("[webhooks.leads] First-touch SMS failed", {
+        leadId: saveResult.leadId,
+        error: error instanceof Error ? error.message : "Unknown first-touch error",
+      });
+    }
+  }
 
   return jsonResponse(
     {

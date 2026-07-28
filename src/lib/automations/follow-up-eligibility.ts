@@ -1,5 +1,4 @@
-import "server-only";
-
+// Pure eligibility logic - no "server-only" so tests can exercise it.
 import type {
   AutomationActionRecord,
   AutomationActionStatus,
@@ -155,7 +154,8 @@ function isOldEnough(automation: AutomationLike, lead: FollowUpEligibilityParams
 
   const anchor =
     automation.type === "twenty_four_hour_followup" ||
-    automation.type === "three_day_followup"
+    automation.type === "three_day_followup" ||
+    automation.type === "seven_day_followup"
       ? lead.last_contacted_at || lead.created_at
       : lead.created_at;
   const ageMs = now.getTime() - new Date(anchor).getTime();

@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getWorkflowTemplate } from "@/lib/business-verticals/verticals";
+import { FOLLOW_UP_SMS_TEMPLATE_STRINGS } from "@/lib/sms/templates";
 import type { AutomationType, MessageChannel } from "@/types/database";
 
 interface DefaultAutomation {
@@ -27,7 +28,8 @@ const DEFAULTS: DefaultAutomation[] = [
     name: "24-Hour Follow-Up",
     delay_hours: 24,
     trigger_status: "contacted",
-    message_template: getWorkflowTemplate("generic_service_business", "new_lead_followup_1"),
+    // A2P-registered copy: keep in sync with docs/a2p-campaign-copy.md.
+    message_template: FOLLOW_UP_SMS_TEMPLATE_STRINGS.day1,
     channel: "sms",
   },
   {
@@ -35,7 +37,15 @@ const DEFAULTS: DefaultAutomation[] = [
     name: "3-Day Follow-Up",
     delay_hours: 72,
     trigger_status: "contacted",
-    message_template: getWorkflowTemplate("generic_service_business", "no_response_followup"),
+    message_template: FOLLOW_UP_SMS_TEMPLATE_STRINGS.day3,
+    channel: "sms",
+  },
+  {
+    type: "seven_day_followup",
+    name: "7-Day Final Follow-Up",
+    delay_hours: 168,
+    trigger_status: "contacted",
+    message_template: FOLLOW_UP_SMS_TEMPLATE_STRINGS.final,
     channel: "sms",
   },
   {
@@ -65,7 +75,7 @@ const DEFAULTS: DefaultAutomation[] = [
 ];
 
 /**
- * Ensures all six default automation types exist for a business.
+ * Ensures all default automation types exist for a business.
  * Only creates missing types, never duplicates existing rows.
  */
 export async function ensureDefaultAutomations(

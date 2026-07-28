@@ -16,9 +16,19 @@ export type AutomationType =
   | "instant_lead_reply"
   | "twenty_four_hour_followup"
   | "three_day_followup"
+  | "seven_day_followup"
   | "missed_call_textback"
   | "review_request"
   | "weekly_owner_summary";
+
+export type SmsConsentStatus = "unknown" | "opted_in" | "opted_out";
+
+export type MessageKind =
+  | "first_touch"
+  | "followup"
+  | "review_request"
+  | "reply"
+  | "inbound";
 
 export type UserRole = "owner" | "manager" | "staff" | "admin";
 
@@ -143,6 +153,11 @@ export interface Lead {
   sync_status: SyncStatus;
   opted_out: boolean;
   consent_source: string | null;
+  phone_e164: string | null;
+  sms_consent_status: SmsConsentStatus;
+  sms_consent_source: string | null;
+  sms_consent_at: string | null;
+  sms_opt_out_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -160,6 +175,16 @@ export interface Message {
   sent_at: string | null;
   received_at: string | null;
   error_message: string | null;
+  kind: MessageKind | null;
+  error_code: number | null;
+  created_at: string;
+}
+
+export interface SmsSuppression {
+  id: string;
+  business_id: string;
+  phone_e164: string;
+  reason: string;
   created_at: string;
 }
 

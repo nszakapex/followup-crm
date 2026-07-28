@@ -4,10 +4,12 @@ import {
   getAutomationTemplateForBusiness,
   getWorkflowTemplate,
 } from "@/lib/business-verticals/verticals";
+import { FOLLOW_UP_SMS_TEMPLATE_STRINGS } from "@/lib/sms/templates";
 
 type TemplateLead = {
   first_name: string | null;
   last_name?: string | null;
+  service_interest?: string | null;
 };
 
 type TemplateBusiness = {
@@ -24,6 +26,7 @@ export type FollowUpTemplateKey =
   | "missed_call_followup_1"
   | "new_lead_initial"
   | "new_lead_followup_1"
+  | "new_lead_final"
   | "stale_lead_checkin"
   | "no_response_followup"
   | "completed_customer_review_nudge";
@@ -36,6 +39,7 @@ export const FOLLOW_UP_TEMPLATES: Record<FollowUpTemplateKey, string> = {
   missed_call_followup_1: getWorkflowTemplate("generic_service_business", "missed_call_followup_1"),
   new_lead_initial: getWorkflowTemplate("generic_service_business", "new_lead_initial"),
   new_lead_followup_1: getWorkflowTemplate("generic_service_business", "new_lead_followup_1"),
+  new_lead_final: FOLLOW_UP_SMS_TEMPLATE_STRINGS.final,
   stale_lead_checkin: getWorkflowTemplate("generic_service_business", "stale_lead_checkin"),
   no_response_followup: getWorkflowTemplate("generic_service_business", "no_response_followup"),
   completed_customer_review_nudge: getWorkflowTemplate(
@@ -55,6 +59,11 @@ export function getFollowUpTemplateForBusiness({
   templateKey: FollowUpTemplateKey;
   currentTemplate?: string | null;
 }) {
+  // new_lead_final is an A2P-campaign template, not a vertical workflow key.
+  if (templateKey === "new_lead_final") {
+    return currentTemplate?.trim() || FOLLOW_UP_SMS_TEMPLATE_STRINGS.final;
+  }
+
   return getAutomationTemplateForBusiness({
     business,
     automationType,
@@ -73,14 +82,16 @@ export function renderFollowUpTemplate(
     last_name: lead.last_name?.trim() || "",
     business_name: business.name?.trim() || "our team",
     google_review_link: business.google_review_link?.trim() || "",
+    service_interest: lead.service_interest?.trim() || "your request",
     firstName: lead.first_name?.trim() || "there",
     lastName: lead.last_name?.trim() || "",
     businessName: business.name?.trim() || "our team",
     reviewLink: business.google_review_link?.trim() || "",
+    serviceInterest: lead.service_interest?.trim() || "your request",
   };
 
   return template.replace(
-    /\{\{\s*(first_name|last_name|business_name|google_review_link|firstName|lastName|businessName|reviewLink)\s*\}\}/g,
+    /\{\{\s*(first_name|last_name|business_name|google_review_link|service_interest|firstName|lastName|businessName|reviewLink|serviceInterest)\s*\}\}/g,
     (_, key: keyof typeof values) => values[key] || ""
   );
 }

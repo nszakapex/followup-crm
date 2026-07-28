@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { sendFirstTouchSms } from "@/lib/automations/first-touch";
 import { sendLeadNotificationEmail } from "@/lib/messaging/lead-notifications";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { authorizeSharedSecret } from "@/lib/webhooks/secret";
@@ -8,7 +9,7 @@ import {
   normalizePhone,
   type NormalizedLeadPayload,
 } from "@/lib/webhooks/lead-payload";
-import type { LeadStatus } from "@/types/database";
+import type { LeadStatus, SmsConsentStatus } from "@/types/database";
 
 export const runtime = "nodejs";
 
@@ -24,7 +25,7 @@ const CORS_HEADERS = {
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LEAD_SELECT =
-  "id, first_name, last_name, phone, email, company, source, service_interest, status, notes, external_crm_name, external_crm_id, metadata_json";
+  "id, first_name, last_name, phone, phone_e164, email, company, source, service_interest, status, notes, external_crm_name, external_crm_id, metadata_json, sms_consent_status";
 const PROGRESSED_STATUSES = new Set<LeadStatus>([
   "booked",
   "completed",
@@ -38,7 +39,10 @@ type BusinessTarget = {
   id: string;
   name: string | null;
   owner_email: string | null;
+  owner_phone: string | null;
   resend_from_email: string | null;
+  twilio_from_number: string | null;
+  sms_compliance_status: string | null;
 };
 
 type LeadMatch = {
@@ -46,6 +50,7 @@ type LeadMatch = {
   first_name: string;
   last_name: string | null;
   phone: string | null;
+  phone_e164: string | null;
   email: string | null;
   company: string | null;
   source: string | null;
@@ -55,6 +60,7 @@ type LeadMatch = {
   external_crm_name: string | null;
   external_crm_id: string | null;
   metadata_json: Record<string, unknown> | null;
+  sms_consent_status: SmsConsentStatus | null;
 };
 
 function isDevelopment() {
@@ -122,7 +128,7 @@ async function resolveBusinessTarget(
 
     const { data, error } = await admin
       .from("businesses")
-      .select("id, name, owner_email, resend_from_email")
+      .select("id, name, owner_email, owner_phone, resend_from_email, twilio_from_number, sms_compliance_status")
       .eq("id", businessId)
       .maybeSingle();
 
@@ -142,7 +148,7 @@ async function resolveBusinessTarget(
 
   const { data, error } = await admin
     .from("businesses")
-    .select("id, name, owner_email, resend_from_email")
+    .select("id, name, owner_email, owner_phone, resend_from_email, twilio_from_number, sms_compliance_status")
     .limit(2);
 
   if (error) {
@@ -340,7 +346,19 @@ function buildLeadUpdate(existingLead: LeadMatch, lead: NormalizedLeadPayload) {
 
   if (lead.lastName && !existingLead.last_name) update.last_name = lead.lastName;
   if (lead.phone && !existingLead.phone) update.phone = lead.phone;
+  if (lead.phoneE164 && !existingLead.phone_e164) update.phone_e164 = lead.phoneE164;
   if (lead.email && !existingLead.email) update.email = lead.email;
+
+  // Consent may only upgrade unknown -> opted_in on duplicates. An existing
+  // opted_out is never downgraded by a repeat form submission.
+  if (
+    lead.smsConsent === "granted" &&
+    (existingLead.sms_consent_status ?? "unknown") === "unknown"
+  ) {
+    update.sms_consent_status = "opted_in";
+    update.sms_consent_source = lead.smsConsentSource ?? "web_form";
+    update.sms_consent_at = new Date().toISOString();
+  }
   if (lead.company && !existingLead.company) update.company = lead.company;
   if (lead.source && !existingLead.source) update.source = lead.source;
   if (lead.serviceInterest && !existingLead.service_interest) {
@@ -372,6 +390,7 @@ async function createLead(
       first_name: lead.firstName,
       last_name: lead.lastName,
       phone: lead.phone,
+      phone_e164: lead.phoneE164,
       email: lead.email,
       company: lead.company,
       source: lead.source,
@@ -384,6 +403,11 @@ async function createLead(
       metadata_json: lead.metadata,
       sync_status: lead.externalCrmId ? "synced" : "not_connected",
       consent_source: "website_webhook",
+      // Explicit consent from the form/ad payload opts the lead in; anything
+      // else stays "unknown" and the compliance gate holds SMS (email-only).
+      sms_consent_status: lead.smsConsent === "granted" ? "opted_in" : "unknown",
+      sms_consent_source: lead.smsConsent === "granted" ? lead.smsConsentSource : null,
+      sms_consent_at: lead.smsConsent === "granted" ? new Date().toISOString() : null,
     })
     .select("id")
     .single();
@@ -570,6 +594,25 @@ export async function POST(request: Request) {
   });
 
   if (!existingLead) {
+    // T+0 first touch: fire the instant SMS reply through the compliance
+    // gate. Wrapped like the Resend call - it must never break lead capture.
+    try {
+      await sendFirstTouchSms({
+        business: businessTarget.business,
+        lead: {
+          id: saveResult.leadId,
+          first_name: leadPayload.firstName,
+          phone: leadPayload.phone,
+          service_interest: leadPayload.serviceInterest,
+        },
+      });
+    } catch (error) {
+      console.warn("[webhooks.leads.generic] First-touch SMS failed", {
+        leadId: saveResult.leadId,
+        error: error instanceof Error ? error.message : "Unknown first-touch error",
+      });
+    }
+
     await sendLeadNotificationEmail({
       businessId: businessTarget.business.id,
       leadId: saveResult.leadId,

@@ -167,5 +167,8 @@ They appear on:
 12. Attempt one manual SMS action only after approval.
 13. Confirm opted-out leads are blocked and no SMS is sent.
 
-Do not use automation routes for live SMS testing. They still reject
-`allowProviderSends:true` and cannot send provider messages.
+Automation routes reject `allowProviderSends:true` until the deployment is
+explicitly flipped live (`SMS_ENABLED=true`, a real `SMS_PROVIDER`, and
+`SMS_COMPLIANCE_APPROVED=true`). After that flip, confirmed runs also dispatch
+queued SMS follow-ups through the compliance gate - see
+`docs/sms-followups.md` for the sequence, gate order, and rollout path.

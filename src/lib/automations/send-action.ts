@@ -421,6 +421,7 @@ async function sendFollowUpMessage({
       optedOut: lead.opted_out,
       smsFromNumber: business.twilio_from_number,
       smsComplianceStatus: business.sms_compliance_status,
+      kind: "followup",
     });
   }
 

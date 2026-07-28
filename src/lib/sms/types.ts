@@ -17,6 +17,10 @@ export type SendSmsResult = {
   providerMessageId?: string | null;
   status: SmsSendStatus;
   errorCode?: string;
+  /** Provider numeric error code when available (e.g. Twilio 21610). */
+  providerErrorCode?: number | null;
+  /** True when retrying the same number is pointless (invalid, opted out, landline). */
+  permanentFailure?: boolean;
   errorMessage?: string;
   raw?: Record<string, unknown>;
 };
