@@ -44,8 +44,10 @@ export const BUSINESS_VERTICALS = {
       "review_request_initial",
     ],
     reviewRequestTemplates: {
+      // Registered A2P copy - keep identical to FOLLOW_UP_SMS_TEMPLATE_STRINGS
+      // in src/lib/sms/templates.ts (enforced by tests/sms-templates.test.ts).
       review_request_initial:
-        "Hi {{firstName}}, thank you for choosing {{businessName}}. If you had a good experience, would you mind leaving us an honest review? {{reviewLink}}",
+        "Thanks for choosing {{business_name}}, {{first_name}}! If we did a good job, a quick review means a lot: {{google_review_link}}",
       completed_customer_review_nudge:
         "Hi {{firstName}}, thank you again for choosing {{businessName}}. If you are willing, an honest review would help others find us: {{reviewLink}}",
       review_request_followup_1:
@@ -61,18 +63,20 @@ export const BUSINESS_VERTICALS = {
       no_response_followup: "Lead has not responded after earlier contact.",
     },
     followUpTemplates: {
+      // Registered A2P copy for campaign-covered steps - keep identical to
+      // FOLLOW_UP_SMS_TEMPLATE_STRINGS in src/lib/sms/templates.ts.
       new_lead_initial:
-        "Hi {{firstName}}, this is {{businessName}}. Thanks for reaching out. What can we help you with?",
+        "Hi {{first_name}}, this is {{business_name}} — got your request about {{service_interest}}. Want me to send a quote or grab you a time? Reply here or call {{business_phone}}. Reply STOP to opt out.",
       missed_call_initial:
         "Hi {{firstName}}, this is {{businessName}}. Sorry we missed your call. What can we help you with?",
       missed_call_followup_1:
         "Hi {{firstName}}, checking back from {{businessName}} after your missed call. Reply here if you still need help.",
       new_lead_followup_1:
-        "Hi {{firstName}}, just checking in from {{businessName}}. Are you still looking for help?",
+        "{{business_name}} here — still happy to help with {{service_interest}}. Any questions I can answer, or a day that works best?",
       stale_lead_checkin:
         "Hi {{firstName}}, this is {{businessName}}. Checking in to see if you still need anything from us.",
       no_response_followup:
-        "Hi {{firstName}}, we wanted to follow up once more. If you still need help, just reply here.",
+        'Hi {{first_name}}, {{business_name}} checking in one more time about {{service_interest}}. If now\'s not the right time, no problem — just say "later" and I\'ll close this out.',
       estimate_followup:
         "Hi {{firstName}}, just following up on your estimate from {{businessName}}. Do you have any questions or want to schedule a time?",
       completed_service_satisfaction_check:
@@ -139,8 +143,9 @@ export const BUSINESS_VERTICALS = {
       "maintenance_wash_checkin",
     ],
     reviewRequestTemplates: {
+      // Registered A2P copy - identical across verticals by design.
       review_request_initial:
-        "Hi {{firstName}}, thank you for choosing {{businessName}}. If you had a good experience, would you mind leaving us an honest Google review? {{reviewLink}}",
+        "Thanks for choosing {{business_name}}, {{first_name}}! If we did a good job, a quick review means a lot: {{google_review_link}}",
       completed_customer_review_nudge:
         "Hi {{firstName}}, thank you again for choosing {{businessName}}. If you are willing, an honest Google review would really help: {{reviewLink}}",
       review_request_followup_1:
@@ -161,18 +166,22 @@ export const BUSINESS_VERTICALS = {
       maintenance_wash_checkin: "Customer may be ready for a maintenance wash check-in.",
     },
     followUpTemplates: {
+      // Campaign-covered steps use the registered A2P copy verbatim (the
+      // campaign is approved for this brand; detailing-flavored variants
+      // would drift from the registered samples). Vertical-specific copy
+      // remains only on steps the campaign does not cover.
       new_lead_initial:
-        "Hey {{firstName}}, this is {{businessName}}. Thanks for reaching out about detailing. What vehicle are you looking to have detailed, and are you interested in interior, exterior, full detail, or coating work?",
+        "Hi {{first_name}}, this is {{business_name}} — got your request about {{service_interest}}. Want me to send a quote or grab you a time? Reply here or call {{business_phone}}. Reply STOP to opt out.",
       missed_call_initial:
         "Hey {{firstName}}, this is {{businessName}}. Sorry we missed your call. Are you looking for a detail, quote, or appointment time?",
       missed_call_followup_1:
         "Hey {{firstName}}, checking back from {{businessName}} after your missed call. Reply here if you still need a detailing quote or appointment time.",
       new_lead_followup_1:
-        "Hey {{firstName}}, just following up on your detailing estimate. Did you want to get a time on the schedule or have any questions about the package?",
+        "{{business_name}} here — still happy to help with {{service_interest}}. Any questions I can answer, or a day that works best?",
       stale_lead_checkin:
         "Hey {{firstName}}, this is {{businessName}}. Checking in to see if you still need help with detailing or a quote.",
       no_response_followup:
-        "Hey {{firstName}}, one more quick follow-up from {{businessName}}. If you still want help with your vehicle, just reply here.",
+        'Hi {{first_name}}, {{business_name}} checking in one more time about {{service_interest}}. If now\'s not the right time, no problem — just say "later" and I\'ll close this out.',
       estimate_followup:
         "Hey {{firstName}}, just following up on your detailing estimate. Did you want to get a time on the schedule or have any questions about the package?",
       completed_service_satisfaction_check:
