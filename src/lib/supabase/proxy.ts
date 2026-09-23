@@ -59,8 +59,10 @@ export async function updateSession(request: NextRequest) {
   const isAutomationRunRoute =
     pathname === "/api/automations/run" ||
     pathname === "/api/automations/scheduled-run";
+  const isPortfolioPreviewRoute = pathname === "/preview" || pathname.startsWith("/preview/");
   const isPublicRoute =
     pathname === "/" ||
+    isPortfolioPreviewRoute ||
     isAuthRoute ||
     isAuthApiRoute ||
     isDiagnosticsRoute ||

@@ -1,7 +1,14 @@
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/proxy";
 
 export async function proxy(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  // Portfolio preview is a static public showcase — skip Supabase session work
+  // so hiring managers can open /preview without app credentials configured.
+  if (pathname === "/preview" || pathname.startsWith("/preview/")) {
+    return NextResponse.next();
+  }
+
   return await updateSession(request);
 }
 

@@ -134,6 +134,9 @@ export default function LandingPage() {
             FollowUp CRM
           </p>
           <div className="flex gap-4 text-sm text-muted-foreground">
+            <Link href="/preview" className="hover:text-foreground transition-colors">
+              Portfolio preview
+            </Link>
             <Link href="/login" className="hover:text-foreground transition-colors">
               Sign in
             </Link>
