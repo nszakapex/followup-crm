@@ -45,6 +45,9 @@ export default function LandingPage() {
             <span className="text-lg font-semibold tracking-tight">FollowUp</span>
           </Link>
           <div className="flex items-center gap-3">
+            <Link href="/preview" className={buttonVariants({ variant: "ghost" })}>
+              For hiring managers
+            </Link>
             <Link href="/login" className={buttonVariants({ variant: "ghost" })}>
               Sign in
             </Link>
